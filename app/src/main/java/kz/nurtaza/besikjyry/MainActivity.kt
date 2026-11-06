@@ -214,6 +214,9 @@ class MainActivity: Activity() {
             mp.setDataSource(this,uri)
             mp.setOnCompletionListener { playNext() }
             mp.prepare()
+            val remaining=(startedAt+sessionMs-SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+            val volume=if(remaining>=fadeMs) 1f else (remaining.toFloat()/fadeMs).coerceIn(0f,1f)
+            mp.setVolume(volume,volume)
             mp.start()
             consecutiveFailures=0
             player=mp
