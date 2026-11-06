@@ -372,6 +372,8 @@ class SkyView(context:Context): View(context) {
     private val order=catalog.indices.shuffled().toMutableList()
     private var index=0
     private var sceneStart=SystemClock.elapsedRealtime()
+    private val appLaunchAt=sceneStart
+    private var firstConstellationChanged=false
     private var outgoing:Int?=null
     private var transitionStart=0L
     private val transitionDuration=18000L
@@ -431,6 +433,7 @@ class SkyView(context:Context): View(context) {
     fun advance() { change(1) }
     fun previous() { change(-1) }
     private fun change(direction:Int) {
+        firstConstellationChanged=true
         outgoing=order[index]
         index+=direction
         if(index>=order.size) { order.shuffle(); index=0 }
@@ -538,6 +541,20 @@ class SkyView(context:Context): View(context) {
             val visibleSeconds=((now-fullyVisibleAt).coerceAtLeast(0L))/1000f
             val guideOpacity=if(visibleSeconds<11f) 1f else ((15f-visibleSeconds)/4f).coerceIn(0f,1f)
             drawConstellation(canvas,order[index],1f,guideOpacity,guideOpacity)
+        }
+        // Creator credit appears only on the initial constellation, on the opposite side.
+        // It fades away with that constellation's first label and never returns.
+        if(!firstConstellationChanged) {
+            val secondsSinceLaunch=(now-appLaunchAt).coerceAtLeast(0L)/1000f
+            val fadeIn=(secondsSinceLaunch/5f).coerceIn(0f,1f)
+            val fadeOut=((15f-secondsSinceLaunch)/4f).coerceIn(0f,1f)
+            val creditOpacity=fadeIn*fadeIn*(3f-2f*fadeIn)*fadeOut
+            if(creditOpacity>0f) {
+                val credit="Created by Nurtaza Saparov"
+                textPaint.textSize=14f*w/1920f
+                textPaint.alpha=(creditOpacity*140).toInt().coerceIn(0,255)
+                canvas.drawText(credit,w*.975f-textPaint.measureText(credit),h*.95f,textPaint)
+            }
         }
         // Dim the entire sky during the final five minutes.
         val remaining=sessionEnd-now
