@@ -258,6 +258,49 @@ class SkyView(context:Context): View(context) {
     private var outgoing:Int?=null
     private var transitionStart=0L
     private val transitionDuration=18000L
+    // Rare, dim shooting stars: randomized path and 2–6 minute gaps.
+    private data class Comet(val start:Long,val duration:Long,val x:Float,val y:Float,
+        val dx:Float,val dy:Float,val brightness:Float,val tail:Float)
+    private var comet:Comet?=null
+    private var nextCometAt=SystemClock.elapsedRealtime()+rng.nextLong(120000L,360001L)
+    private val cometPaint=Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style=Paint.Style.STROKE
+        strokeCap=Paint.Cap.ROUND
+    }
+    private fun drawComet(canvas:Canvas,now:Long,w:Float,h:Float) {
+        if(comet==null && now>=nextCometAt) {
+            val angle=(if(rng.nextBoolean()) 1f else -1f)*(0.25f+rng.nextFloat()*0.65f)
+            val dx=(0.12f+rng.nextFloat()*0.16f)*(if(rng.nextBoolean()) 1f else -1f)
+            val dy=dx*angle
+            comet=Comet(now,rng.nextLong(2600L,5100L),
+                0.12f+rng.nextFloat()*0.70f,0.15f+rng.nextFloat()*0.65f,
+                dx,dy,0.12f+rng.nextFloat()*0.23f,0.012f+rng.nextFloat()*0.018f)
+        }
+        val c=comet ?: return
+        val p=(now-c.start).toFloat()/c.duration
+        if(p>=1f) {
+            comet=null
+            nextCometAt=now+rng.nextLong(120000L,360001L)
+            return
+        }
+        val envelope=(min(1f,p*5f)*min(1f,(1f-p)*5f)).coerceIn(0f,1f)
+        val x=(c.x+c.dx*p)*w
+        val y=(c.y+c.dy*p)*h
+        val magnitude=sqrt((c.dx*w)*(c.dx*w)+(c.dy*h)*(c.dy*h)).coerceAtLeast(1f)
+        val tailLength=c.tail*w
+        val tx=x-c.dx*w/magnitude*tailLength
+        val ty=y-c.dy*h/magnitude*tailLength
+        val alpha=(c.brightness*envelope*255f).toInt().coerceIn(0,255)
+        cometPaint.strokeWidth=(0.8f*w/1920f).coerceAtLeast(0.6f)
+        cometPaint.shader=LinearGradient(tx,ty,x,y,
+            intArrayOf(Color.TRANSPARENT,Color.argb(alpha/3,170,196,230),
+                Color.argb(alpha,205,222,246)),null,Shader.TileMode.CLAMP)
+        canvas.drawLine(tx,ty,x,y,cometPaint)
+        cometPaint.shader=null
+        paint.color=Color.rgb(205,222,246)
+        paint.alpha=alpha
+        canvas.drawCircle(x,y,(0.75f*w/1920f).coerceAtLeast(0.5f),paint)
+    }
     private val bg=Paint(Paint.ANTI_ALIAS_FLAG)
     private val glow=Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(159,177,207); typeface=Typeface.create("sans-serif-light",Typeface.NORMAL) }
@@ -342,6 +385,7 @@ class SkyView(context:Context): View(context) {
             paint.alpha=(a*255).toInt()
             canvas.drawCircle(x,y,s.size*w/1920f,paint)
         }
+        drawComet(canvas,now,w,h)
         val elapsed=now-transitionStart
         val transitioning=outgoing!=null && elapsed<transitionDuration
         if(transitioning) {
