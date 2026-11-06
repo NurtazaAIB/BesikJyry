@@ -49,7 +49,7 @@ class MainActivity: Activity() {
     private var queue = mutableListOf<Uri>()
     private var history = mutableListOf<Uri>()
     private var current: Uri? = null
-    private val random = Random()
+    private val random = Random(System.currentTimeMillis())
     private lateinit var sky: SkyView
     private lateinit var updater: Updater
     private val handler = Handler(Looper.getMainLooper())
