@@ -20,7 +20,7 @@ jobs:
           gradle-version: '8.9'
       - name: Restore release signing key
         if: ${{ env.HAS_KEYSTORE == 'true' }}
-        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/besik-release.jks"
+        run: printf "%s" "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/besik-release.jks"
         env:
           KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
       - name: Build debug APK
