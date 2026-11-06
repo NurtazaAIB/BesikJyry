@@ -4,6 +4,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.ContentValues
 import android.provider.MediaStore
 import android.os.Environment
 import java.io.File
@@ -83,12 +84,32 @@ class MainActivity: Activity() {
         sky.setSessionEnd(startedAt+sessionMs,fadeMs)
         handler.postDelayed(stop,sessionMs)
         handler.postDelayed(fadeAudio,sessionMs-fadeMs)
+        ensureTunMusicFolder()
         ensureMusicAccess()
         /* val stored=prefs.getString("folder",null)
         if(stored==null) promptFolder() else {
-            try { loadFolder(Uri.parse(stored)); if(tracks.isEmpty()) promptFolder("MP3 не найдены. Выберите Music/BesikJyry.") else playNext() }
+            try { loadFolder(Uri.parse(stored)); if(tracks.isEmpty()) promptFolder("MP3 не найдены. Выберите Music/Tun.") else playNext() }
             catch (e:Exception) { promptFolder("Нет доступа к папке: ${e.message}") }
         } */
+    }
+    private fun ensureTunMusicFolder() {
+        val folder=File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),"Tun")
+        if(folder.isDirectory || folder.mkdirs()) return
+        // Scoped storage may block direct mkdirs on newer Android TV devices.
+        // A tiny text file created through MediaStore establishes Music/Tun without storage-wide access.
+        if(Build.VERSION.SDK_INT>=29) {
+            try {
+                val values=ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME,"README_Tun.txt")
+                    put(MediaStore.MediaColumns.MIME_TYPE,"text/plain")
+                    put(MediaStore.MediaColumns.RELATIVE_PATH,"Music/Tun/")
+                }
+                val uri=contentResolver.insert(MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),values)
+                if(uri!=null) contentResolver.openOutputStream(uri)?.use {
+                    it.write("Place MP3 files in Music/Tun for Tün.".toByteArray(Charsets.UTF_8))
+                }
+            } catch(_:Exception) { /* Folder instructions remain visible if storage denies creation. */ }
+        }
     }
     private fun audioPermission():String =
         if(Build.VERSION.SDK_INT>=33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
@@ -112,7 +133,7 @@ class MainActivity: Activity() {
             loadLocalMusic()
             if(tracks.isEmpty()) {
                 AlertDialog.Builder(this).setTitle("MP3 не найдены")
-                    .setMessage("Положите MP3 во внутреннюю память: Music/BesikJyry (без вложенных папок). Затем нажмите «Повторить».")
+                    .setMessage("Положите MP3 во внутреннюю память: Music/Tun (без вложенных папок). Затем нажмите «Повторить».")
                     .setPositiveButton("Повторить") { _, _ -> startLocalMusic() }
                     .setNegativeButton("Позже",null).show()
             } else {
@@ -143,19 +164,19 @@ class MainActivity: Activity() {
                 val id=cursor.getLong(idColumn)
                 if(pathColumn>=0) {
                     val relative=(cursor.getString(pathColumn) ?: "").trim('/').lowercase()
-                    if(relative!="music/besikjyry") continue
+                    if(relative!="music/tun") continue
                 }
                 found.add(android.content.ContentUris.withAppendedId(collection,id))
             }
         }
         if(Build.VERSION.SDK_INT<29) {
             found.clear()
-            val folder=File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),"BesikJyry")
+            val folder=File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),"Tun")
             folder.listFiles()?.filter { it.isFile && it.extension.equals("mp3",true) }?.forEach { found.add(Uri.fromFile(it)) }
         }
         tracks=found.distinct().toMutableList()
     }
-    private fun promptFolder(message:String="Выберите папку Music/BesikJyry с MP3 и разрешите доступ.") {
+    private fun promptFolder(message:String="Выберите папку Music/Tun с MP3 и разрешите доступ.") {
         AlertDialog.Builder(this).setTitle("Музыка для Бесік жыры").setMessage(message)
             .setPositiveButton("Выбрать папку") { _, _ -> chooseFolder() }
             .setNegativeButton("Позже",null).show()
@@ -174,7 +195,7 @@ class MainActivity: Activity() {
                 prefs.edit().putString("folder",uri.toString()).apply()
                 loadFolder(uri)
                 queue.clear()
-                if(tracks.isEmpty()) promptFolder("В этой папке MP3 не найдены. Выберите Music/BesikJyry.")
+                if(tracks.isEmpty()) promptFolder("В этой папке MP3 не найдены. Выберите Music/Tun.")
                 else { Toast.makeText(this,"Найдено MP3: ${tracks.size}",Toast.LENGTH_LONG).show(); playNext() }
             } catch(e:Exception) { promptFolder("Папка недоступна: ${e.message}") }
         }
