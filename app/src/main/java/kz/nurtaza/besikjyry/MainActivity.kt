@@ -218,6 +218,7 @@ class MainActivity: Activity() {
         when(keyCode) {
             KeyEvent.KEYCODE_MENU -> { startLocalMusic(); return true }
             KeyEvent.KEYCODE_DPAD_CENTER -> { if(player==null) { ensureMusicAccess(); return true } }
+            KeyEvent.KEYCODE_DPAD_UP -> { sky.requestComet(); return true }
             KeyEvent.KEYCODE_DPAD_RIGHT -> { playNext(); sky.advance(); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if(history.size>1) { history.removeAt(history.lastIndex); val prev=history.last(); play(prev,false) }
@@ -258,11 +259,17 @@ class SkyView(context:Context): View(context) {
     private var outgoing:Int?=null
     private var transitionStart=0L
     private val transitionDuration=18000L
-    // Rare, dim shooting stars: randomized path and 2–6 minute gaps.
+    // Rare, dim shooting stars: randomized path and 1–3 minute gaps.
     private data class Comet(val start:Long,val duration:Long,val x:Float,val y:Float,
         val dx:Float,val dy:Float,val brightness:Float,val tail:Float)
     private var comet:Comet?=null
-    private var nextCometAt=SystemClock.elapsedRealtime()+rng.nextLong(120000L,360001L)
+    private var nextCometAt=SystemClock.elapsedRealtime()+rng.nextLong(60000L,180001L)
+    fun requestComet() {
+        // A new UP press schedules a random comet five seconds later.
+        // The existing sky, music and constellation controls are unchanged.
+        nextCometAt=SystemClock.elapsedRealtime()+5000L
+        invalidate()
+    }
     private val cometPaint=Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style=Paint.Style.STROKE
         strokeCap=Paint.Cap.ROUND
@@ -280,7 +287,7 @@ class SkyView(context:Context): View(context) {
         val p=(now-c.start).toFloat()/c.duration
         if(p>=1f) {
             comet=null
-            nextCometAt=now+rng.nextLong(120000L,360001L)
+            nextCometAt=now+rng.nextLong(60000L,180001L)
             return
         }
         val envelope=(min(1f,p*5f)*min(1f,(1f-p)*5f)).coerceIn(0f,1f)
