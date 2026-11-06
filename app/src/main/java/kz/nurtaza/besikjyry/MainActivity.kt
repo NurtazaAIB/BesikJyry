@@ -10,7 +10,7 @@ import android.os.*
 import android.provider.DocumentsContract
 import android.view.*
 import android.widget.Toast
-import java.util.Random
+import kotlin.random.Random
 import kotlin.math.*
 
 data class Constellation(val kz: String, val ru: String, val points: List<Pair<Float,Float>>, val edges: List<Pair<Int,Int>>)
