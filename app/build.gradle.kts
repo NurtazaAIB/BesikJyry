@@ -8,7 +8,7 @@ android {
     defaultConfig {
         applicationId = "kz.nurtaza.besikjyry"
         minSdk = 23
-        targetSdk = 28
+        targetSdk = 33
         versionCode = (System.getenv("CI_BUILD_NUMBER") ?: "1").toInt()
         versionName = "1.0." + versionCode
     }
