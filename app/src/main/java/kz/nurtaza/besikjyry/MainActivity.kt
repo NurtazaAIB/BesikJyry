@@ -562,7 +562,7 @@ class SkyView(context:Context): View(context) {
         super.onDraw(canvas)
         val w=width.toFloat(); val h=height.toFloat()
         val now=SystemClock.elapsedRealtime()
-        if(now-sceneStart>=240000L) advance()
+        if(now-sceneStart>=120000L) advance()
         val seconds=(now-sceneStart)/1000f
         val t=now/1000f
         bg.shader=LinearGradient(0f,0f,w,h, intArrayOf(Color.rgb(2,5,15),Color.rgb(5,12,29),Color.rgb(1,3,11)),null,Shader.TileMode.CLAMP)
