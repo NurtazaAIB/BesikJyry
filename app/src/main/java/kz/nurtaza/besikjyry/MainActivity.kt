@@ -287,7 +287,7 @@ class SkyView(context:Context): View(context) {
         val p=(now-c.start).toFloat()/c.duration
         if(p>=1f) {
             comet=null
-            nextCometAt=now+rng.nextLong(60000L,180001L)
+            if(nextCometAt<=c.start) nextCometAt=now+rng.nextLong(60000L,180001L)
             return
         }
         val envelope=(min(1f,p*5f)*min(1f,(1f-p)*5f)).coerceIn(0f,1f)
