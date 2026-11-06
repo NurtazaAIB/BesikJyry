@@ -324,13 +324,19 @@ class SkyView(context:Context): View(context) {
         val elapsed=now-transitionStart
         val transitioning=outgoing!=null && elapsed<transitionDuration
         if(transitioning) {
-            val progress=(elapsed.toFloat()/transitionDuration).coerceIn(0f,1f)
-            val smooth=progress*progress*(3f-2f*progress)
-            drawConstellation(canvas,outgoing!!,1f-smooth,0f)
-            drawConstellation(canvas,order[index],smooth,smooth)
+            val half=transitionDuration/2f
+            if(elapsed<half) {
+                val p=(elapsed/half).coerceIn(0f,1f)
+                val eased=p*p*(3f-2f*p)
+                drawConstellation(canvas,outgoing!!,1f-eased,1f-eased)
+            } else {
+                val p=((elapsed-half)/half).coerceIn(0f,1f)
+                val eased=p*p*(3f-2f*p)
+                drawConstellation(canvas,order[index],eased,eased)
+            }
         } else {
             outgoing=null
-            val labelOpacity=if(seconds<11f) 1f else ((15f-seconds)/4f).coerceIn(0f,1f)
+            val labelOpacity=if(seconds<20f) 1f else ((24f-seconds)/4f).coerceIn(0f,1f)
             drawConstellation(canvas,order[index],1f,labelOpacity)
         }
         // Refresh at display cadence; actual frame rate depends on projector hardware.
