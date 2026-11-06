@@ -1,6 +1,7 @@
 package kz.nurtaza.besikjyry
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.content.Context
 import android.graphics.*
@@ -66,9 +67,15 @@ class MainActivity: Activity() {
         startedAt = SystemClock.elapsedRealtime()
         handler.postDelayed(stop, 60*60*1000L)
         val stored=prefs.getString("folder",null)
-        if(stored==null) chooseFolder() else {
-            try { loadFolder(Uri.parse(stored)); playNext() } catch (_:Exception) { chooseFolder() }
+        if(stored==null) promptFolder() else {
+            try { loadFolder(Uri.parse(stored)); if(tracks.isEmpty()) promptFolder("MP3 не найдены. Выберите Music/BesikJyry.") else playNext() }
+            catch (e:Exception) { promptFolder("Нет доступа к папке: ${e.message}") }
         }
+    }
+    private fun promptFolder(message:String="Выберите папку Music/BesikJyry с MP3 и разрешите доступ.") {
+        AlertDialog.Builder(this).setTitle("Музыка для Бесік жыры").setMessage(message)
+            .setPositiveButton("Выбрать папку") { _, _ -> chooseFolder() }
+            .setNegativeButton("Позже",null).show()
     }
     private fun chooseFolder() {
         val intent=Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
@@ -83,15 +90,19 @@ class MainActivity: Activity() {
                 contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 prefs.edit().putString("folder",uri.toString()).apply()
                 loadFolder(uri)
-                playNext()
-            } catch(e:Exception) { Toast.makeText(this,"Папка недоступна: ${e.message}",Toast.LENGTH_LONG).show() }
+                queue.clear()
+                if(tracks.isEmpty()) promptFolder("В этой папке MP3 не найдены. Выберите Music/BesikJyry.")
+                else { Toast.makeText(this,"Найдено MP3: ${tracks.size}",Toast.LENGTH_LONG).show(); playNext() }
+            } catch(e:Exception) { promptFolder("Папка недоступна: ${e.message}") }
         }
     }
     private fun loadFolder(folder:Uri) {
         val id=DocumentsContract.getTreeDocumentId(folder)
         val children=DocumentsContract.buildChildDocumentsUriUsingTree(folder,id)
         val result=mutableListOf<Uri>()
-        contentResolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE),null,null,null)?.use { cursor ->
+        val docs=contentResolver.query(children,arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID,DocumentsContract.Document.COLUMN_DISPLAY_NAME,DocumentsContract.Document.COLUMN_MIME_TYPE),null,null,null)
+            ?: throw IllegalStateException("Не удалось прочитать папку")
+        docs.use { cursor ->
             while(cursor.moveToNext()) {
                 val docId=cursor.getString(0)
                 val name=cursor.getString(1) ?: ""
@@ -108,10 +119,11 @@ class MainActivity: Activity() {
     }
     private fun playNext() {
         if(queue.isEmpty()) refill()
-        if(queue.isEmpty()) { Toast.makeText(this,"Добавьте MP3 в выбранную папку",Toast.LENGTH_LONG).show(); return }
+        if(queue.isEmpty()) { promptFolder("MP3 не найдены. Выберите Music/BesikJyry."); return }
         val next=queue.removeAt(0)
         play(next,true)
     }
+    private var consecutiveFailures=0
     private fun play(uri:Uri,record:Boolean) {
         try {
             player?.release()
@@ -120,13 +132,21 @@ class MainActivity: Activity() {
             mp.setOnCompletionListener { playNext() }
             mp.prepare()
             mp.start()
+            consecutiveFailures=0
             player=mp
             current=uri
             if(record) history.add(uri)
-        } catch (_:Exception) { player=null; if(queue.isNotEmpty()) playNext() }
+        } catch (e:Exception) {
+            player?.release(); player=null
+            consecutiveFailures++
+            if(consecutiveFailures<3 && queue.isNotEmpty()) playNext()
+            else { consecutiveFailures=0; promptFolder("Ошибка воспроизведения MP3: ${e.message}. Выберите папку снова.") }
+        }
     }
     override fun onKeyDown(keyCode:Int,event:KeyEvent?):Boolean {
         when(keyCode) {
+            KeyEvent.KEYCODE_MENU -> { chooseFolder(); return true }
+            KeyEvent.KEYCODE_DPAD_CENTER -> { if(player==null) { chooseFolder(); return true } }
             KeyEvent.KEYCODE_DPAD_RIGHT -> { playNext(); sky.advance(); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if(history.size>1) { history.removeAt(history.lastIndex); val prev=history.last(); play(prev,false) }
