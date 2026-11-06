@@ -300,7 +300,7 @@ class SkyView(context:Context): View(context) {
                 val x=rng.nextFloat()
                 val spread=(rng.nextFloat()+rng.nextFloat()+rng.nextFloat()-1.5f)*.21f
                 Dust(x,(milkyOffset+milkySlope*(x-.5f)+spread).coerceIn(0f,1f),
-                    .32f+rng.nextFloat()*.95f,18+rng.nextInt(42))
+                    .32f+rng.nextFloat()*.95f,7+rng.nextInt(19))
             }
         }
         invalidate()
@@ -313,8 +313,8 @@ class SkyView(context:Context): View(context) {
         canvas.save()
         canvas.rotate(kotlin.math.atan2(milkySlope*h,w)*180f/Math.PI.toFloat(),w*.5f,centerY)
         glow.shader=LinearGradient(0f,centerY-h*.23f,0f,centerY+h*.23f,
-            intArrayOf(Color.TRANSPARENT,Color.argb((opacity*18).toInt(),65,85,118),
-                Color.argb((opacity*31).toInt(),65,82,110),
+            intArrayOf(Color.TRANSPARENT,Color.argb((opacity*8).toInt(),65,85,118),
+                Color.argb((opacity*13).toInt(),65,82,110),
                 Color.argb((opacity*18).toInt(),65,85,118),Color.TRANSPARENT),
             null,Shader.TileMode.CLAMP)
         canvas.drawRect(0f,0f,w,h,glow)
@@ -327,16 +327,18 @@ class SkyView(context:Context): View(context) {
         }
     }
     private data class Satellite(val start:Long,val duration:Long,val x:Float,val y:Float,
-        val dx:Float,val dy:Float,val radius:Float,val brightness:Int)
+        val dx:Float,val dy:Float,val radius:Float,val brightness:Int,val twinkles:Boolean)
     private val satellites=mutableListOf<Satellite>()
+    private var satelliteCount=0
     private var nextSatelliteAt=SystemClock.elapsedRealtime()+rng.nextLong(60000L,180001L)
     private fun drawSatellite(canvas:Canvas,now:Long,w:Float,h:Float) {
         if(now>=nextSatelliteAt) {
             val dx=(if(rng.nextBoolean()) 1f else -1f)*(.85f+rng.nextFloat()*.25f)
+            satelliteCount++
             satellites.add(Satellite(now,rng.nextLong(110000L,190001L),
                 if(dx>0) -.06f else 1.06f,.12f+rng.nextFloat()*.76f,
                 dx,(rng.nextFloat()-.5f)*.18f,
-                1.2f+rng.nextFloat()*1.15f,110+rng.nextInt(75)))
+                1.2f+rng.nextFloat()*1.15f,110+rng.nextInt(75),satelliteCount%2==0))
             // Schedule from launch time, allowing simultaneous satellites.
             nextSatelliteAt=now+rng.nextLong(60000L,180001L)
         }
@@ -347,7 +349,8 @@ class SkyView(context:Context): View(context) {
             if(progress>=1f) { it.remove(); continue }
             val visibility=(min(1f,progress*12f)*min(1f,(1f-progress)*12f)).coerceIn(0f,1f)
             paint.color=Color.rgb(207,220,238)
-            paint.alpha=(visibility*sat.brightness).toInt().coerceIn(0,255)
+            val twinkle=if(sat.twinkles) (0.7f+0.3f*kotlin.math.cos((now-sat.start)/1000f*1.4f)) else 1f
+            paint.alpha=(visibility*sat.brightness*twinkle).toInt().coerceIn(0,255)
             canvas.drawCircle((sat.x+sat.dx*progress)*w,(sat.y+sat.dy*progress)*h,
                 (sat.radius*w/1920f).coerceAtLeast(.9f),paint)
         }
