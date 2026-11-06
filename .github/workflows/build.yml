@@ -3,11 +3,11 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -18,9 +18,36 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Restore release signing key
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        run: echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/besik-release.jks"
+        env:
+          KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
+        env:
+          CI_BUILD_NUMBER: ${{ github.run_number }}
       - uses: actions/upload-artifact@v4
         with:
-          name: BesikJyry-v1-debug
+          name: BesikJyry-debug
           path: app/build/outputs/apk/debug/*.apk
+      - name: Build signed release APK
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        run: gradle --no-daemon assembleRelease
+        env:
+          CI_BUILD_NUMBER: ${{ github.run_number }}
+          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/besik-release.jks
+          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      - name: Publish latest APK for in-app updater
+        if: ${{ env.HAS_KEYSTORE == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk BesikJyry.apk
+          gh release view latest >/dev/null 2>&1 || gh release create latest --title "Latest stable APK" --notes "Signed APK built from main."
+          gh release upload latest BesikJyry.apk --clobber
+          gh release edit latest --title "BesikJyry 1.0.${{ github.run_number }}" --notes "Signed APK built from main at ${{ github.sha }}."
+    env:
+      HAS_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' && secrets.RELEASE_STORE_PASSWORD != '' && secrets.RELEASE_KEY_ALIAS != '' && secrets.RELEASE_KEY_PASSWORD != '' }}
