@@ -60,7 +60,17 @@ class MainActivity: Activity() {
     private lateinit var updater: Updater
     private val handler = Handler(Looper.getMainLooper())
     private var startedAt = 0L
+    private val sessionMs=60*60*1000L
+    private val fadeMs=5*60*1000L
     private val stop = Runnable { player?.stop(); player?.release(); player=null; finish() }
+    private val fadeAudio = object:Runnable {
+        override fun run() {
+            val remaining=(startedAt+sessionMs-SystemClock.elapsedRealtime()).coerceAtLeast(0L)
+            val volume=(remaining.toFloat()/fadeMs).coerceIn(0f,1f)
+            player?.setVolume(volume,volume)
+            if(remaining>0L) handler.postDelayed(this,1000L)
+        }
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE)
@@ -70,7 +80,9 @@ class MainActivity: Activity() {
         updater = Updater(this)
         updater.checkOnLaunch()
         startedAt = SystemClock.elapsedRealtime()
-        handler.postDelayed(stop, 60*60*1000L)
+        sky.setSessionEnd(startedAt+sessionMs,fadeMs)
+        handler.postDelayed(stop,sessionMs)
+        handler.postDelayed(fadeAudio,sessionMs-fadeMs)
         ensureMusicAccess()
         /* val stored=prefs.getString("folder",null)
         if(stored==null) promptFolder() else {
@@ -219,6 +231,7 @@ class MainActivity: Activity() {
             KeyEvent.KEYCODE_MENU -> { startLocalMusic(); return true }
             KeyEvent.KEYCODE_DPAD_CENTER -> { if(player==null) { ensureMusicAccess(); return true } }
             KeyEvent.KEYCODE_DPAD_UP -> { sky.requestComet(); return true }
+            KeyEvent.KEYCODE_DPAD_DOWN -> { sky.toggleMilkyWay(); return true }
             KeyEvent.KEYCODE_DPAD_RIGHT -> { playNext(); sky.advance(); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if(history.size>1) { history.removeAt(history.lastIndex); val prev=history.last(); play(prev,false) }
@@ -231,6 +244,7 @@ class MainActivity: Activity() {
     override fun onDestroy() {
         updater.close()
         handler.removeCallbacks(stop)
+        handler.removeCallbacks(fadeAudio)
         player?.release()
         player=null
         super.onDestroy()
@@ -252,6 +266,59 @@ class SkyView(context:Context): View(context) {
             0.12f+rng.nextFloat()*0.65f,rng.nextFloat()*6.283f,
             40f+rng.nextFloat()*55f,rng.nextFloat()<0.15f)
         }
+    }
+    private var milkyWayEnabled=false
+    private var milkyWaySeed=0
+    private data class Dust(val x:Float,val y:Float,val radius:Float,val alpha:Int)
+    private var dust:List<Dust> = emptyList()
+    private var sessionEnd=Long.MAX_VALUE
+    private var sessionFadeMs=300000L
+    fun setSessionEnd(end:Long,fade:Long) { sessionEnd=end; sessionFadeMs=fade }
+    fun toggleMilkyWay() {
+        milkyWayEnabled=!milkyWayEnabled
+        if(milkyWayEnabled) {
+            milkyWaySeed++
+            val slope=(rng.nextFloat()-.5f)*0.7f
+            val offset=.35f+rng.nextFloat()*.3f
+            dust=List(1400) {
+                val x=rng.nextFloat()
+                val across=(rng.nextFloat()+rng.nextFloat()+rng.nextFloat()-1.5f)*.12f
+                Dust(x,(offset+slope*(x-.5f)+across).coerceIn(0f,1f),
+                    .28f+rng.nextFloat()*.65f,8+rng.nextInt(28))
+            }
+        }
+        invalidate()
+    }
+    private fun drawMilkyWay(canvas:Canvas,w:Float,h:Float) {
+        if(!milkyWayEnabled) return
+        for(d in dust) {
+            paint.color=Color.rgb(188,205,230)
+            paint.alpha=d.alpha
+            canvas.drawCircle(d.x*w,d.y*h,(d.radius*w/1920f).coerceAtLeast(.3f),paint)
+        }
+    }
+    private data class Satellite(val start:Long,val duration:Long,val x:Float,val y:Float,val dx:Float,val dy:Float)
+    private var satellite:Satellite?=null
+    private var nextSatelliteAt=SystemClock.elapsedRealtime()+rng.nextLong(420000L,900001L)
+    private fun drawSatellite(canvas:Canvas,now:Long,w:Float,h:Float) {
+        if(satellite==null && now>=nextSatelliteAt) {
+            val dx=(if(rng.nextBoolean()) 1f else -1f)*(.65f+rng.nextFloat()*.3f)
+            satellite=Satellite(now,rng.nextLong(80000L,125001L),
+                if(dx>0) -.04f else 1.04f,.15f+rng.nextFloat()*.7f,
+                dx,(rng.nextFloat()-.5f)*.16f)
+        }
+        val sat=satellite ?: return
+        val progress=(now-sat.start).toFloat()/sat.duration
+        if(progress>=1f) {
+            satellite=null
+            nextSatelliteAt=now+rng.nextLong(420000L,900001L)
+            return
+        }
+        val visibility=(min(1f,progress*10f)*min(1f,(1f-progress)*10f)).coerceIn(0f,1f)
+        paint.color=Color.rgb(196,213,232)
+        paint.alpha=(visibility*95f).toInt()
+        canvas.drawCircle((sat.x+sat.dx*progress)*w,(sat.y+sat.dy*progress)*h,
+            (1.0f*w/1920f).coerceAtLeast(.7f),paint)
     }
     private val order=catalog.indices.shuffled().toMutableList()
     private var index=0
@@ -363,6 +430,7 @@ class SkyView(context:Context): View(context) {
         glow.shader=RadialGradient(w*.54f,h*.48f,w*.62f,intArrayOf(Color.argb(25,35,57,100),Color.argb(8,21,43,80),Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
         canvas.drawRect(0f,0f,w,h,glow)
         glow.shader=null
+        drawMilkyWay(canvas,w,h)
         // Every two minutes a different ~5% cohort of background stars
         // slowly vanishes completely and returns. The other 95% keep
         // their existing independent, subtle breathing animation.
@@ -388,11 +456,18 @@ class SkyView(context:Context): View(context) {
             } else 1f
             val a=baseAlpha*fadeFactor
             val x=s.x*w; val y=s.y*h
-            paint.color=if(s.warm) Color.rgb(242,224,207) else Color.rgb(198,220,255)
+            paint.color=when {
+                s.warm -> Color.rgb(242,224,207)
+                starIndex%17==0 -> Color.rgb(255,231,198)
+                starIndex%11==0 -> Color.rgb(171,199,244)
+                starIndex%7==0 -> Color.rgb(238,240,246)
+                else -> Color.rgb(207,222,246)
+            }
             paint.alpha=(a*255).toInt()
             canvas.drawCircle(x,y,s.size*w/1920f,paint)
         }
         drawComet(canvas,now,w,h)
+        drawSatellite(canvas,now,w,h)
         val elapsed=now-transitionStart
         val transitioning=outgoing!=null && elapsed<transitionDuration
         if(transitioning) {
@@ -414,6 +489,14 @@ class SkyView(context:Context): View(context) {
             val visibleSeconds=((now-fullyVisibleAt).coerceAtLeast(0L))/1000f
             val guideOpacity=if(visibleSeconds<11f) 1f else ((15f-visibleSeconds)/4f).coerceIn(0f,1f)
             drawConstellation(canvas,order[index],1f,guideOpacity,guideOpacity)
+        }
+        // Dim the entire sky during the final five minutes.
+        val remaining=sessionEnd-now
+        if(remaining<sessionFadeMs) {
+            val opacity=(1f-remaining.toFloat()/sessionFadeMs).coerceIn(0f,1f)
+            paint.color=Color.BLACK
+            paint.alpha=(opacity*255f).toInt()
+            canvas.drawRect(0f,0f,w,h,paint)
         }
         // Refresh at display cadence; actual frame rate depends on projector hardware.
         postInvalidateDelayed(100L)
