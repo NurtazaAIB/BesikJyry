@@ -238,7 +238,7 @@ class MainActivity: Activity() {
 
 private data class Star(val x:Float,val y:Float,val size:Float,val alpha:Float,val phase:Float,val period:Float,val warm:Boolean)
 class SkyView(context:Context): View(context) {
-    private val rng=Random(78239)
+    private val rng=Random(SystemClock.elapsedRealtimeNanos())
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
     // Keep star density consistent from 1080p through native 4K.
     private var stars: List<Star> = emptyList()
@@ -393,7 +393,7 @@ class SkyView(context:Context): View(context) {
             if(elapsed<half) {
                 val p=(elapsed/half).coerceIn(0f,1f)
                 val eased=p*p*(3f-2f*p)
-                drawConstellation(canvas,outgoing!!,1f-eased,1f-eased)
+                drawConstellation(canvas,outgoing!!,1f-eased,0f,0f)
             } else {
                 val p=((elapsed-half)/half).coerceIn(0f,1f)
                 val eased=p*p*(3f-2f*p)
