@@ -313,9 +313,30 @@ class SkyView(context:Context): View(context) {
         glow.shader=RadialGradient(w*.54f,h*.48f,w*.62f,intArrayOf(Color.argb(25,35,57,100),Color.argb(8,21,43,80),Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
         canvas.drawRect(0f,0f,w,h,glow)
         glow.shader=null
-        for(s in stars) {
+        // Every two minutes a different ~5% cohort of background stars
+        // slowly vanishes completely and returns. The other 95% keep
+        // their existing independent, subtle breathing animation.
+        val fadeCycle=(now/120000L).toInt()
+        val fadeSeconds=(now%120000L)/1000f
+        val fadeGroup=fadeCycle%20
+        for((starIndex,s) in stars.withIndex()) {
             val breathing=(0.5f+0.5f*cos((t/s.period)*6.283185f+s.phase)).toFloat()
-            val a=(s.alpha*(0.28f+0.72f*breathing)).coerceIn(0f,1f)
+            val baseAlpha=(s.alpha*(0.28f+0.72f*breathing)).coerceIn(0f,1f)
+            val fadeFactor=if(starIndex%20==fadeGroup) {
+                when {
+                    fadeSeconds<50f -> {
+                        val p=fadeSeconds/50f
+                        1f-p*p*(3f-2f*p)
+                    }
+                    fadeSeconds<70f -> 0f
+                    fadeSeconds<120f -> {
+                        val p=(fadeSeconds-70f)/50f
+                        p*p*(3f-2f*p)
+                    }
+                    else -> 1f
+                }
+            } else 1f
+            val a=baseAlpha*fadeFactor
             val x=s.x*w; val y=s.y*h
             paint.color=if(s.warm) Color.rgb(242,224,207) else Color.rgb(198,220,255)
             paint.alpha=(a*255).toInt()
