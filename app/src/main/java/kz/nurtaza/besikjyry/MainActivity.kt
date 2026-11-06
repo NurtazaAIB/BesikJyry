@@ -149,10 +149,17 @@ private data class Star(val x:Float,val y:Float,val size:Float,val alpha:Float,v
 class SkyView(context:Context): View(context) {
     private val rng=Random(78239)
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
-    private val stars=List(1250) {
+    // Keep star density consistent from 1080p through native 4K.
+    private var stars: List<Star> = emptyList()
+    override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {
+        super.onSizeChanged(w,h,oldw,oldh)
+        val pixels = w.toLong() * h.toLong()
+        val count = (1250.0 * pixels / (1920.0 * 1080.0)).toInt().coerceIn(600,5000)
+        stars = List(count) {
         Star(rng.nextFloat(),rng.nextFloat(),0.45f+rng.nextFloat()*1.5f,
             0.12f+rng.nextFloat()*0.65f,rng.nextFloat()*6.283f,
             40f+rng.nextFloat()*55f,rng.nextFloat()<0.15f)
+        }
     }
     private val order=catalog.indices.shuffled().toMutableList()
     private var index=0
@@ -191,6 +198,7 @@ class SkyView(context:Context): View(context) {
         val originX=w*.5f-scale*.5f
         val originY=h*.5f-scale*.5f
         fun xy(p:Pair<Float,Float>):Pair<Float,Float> = Pair(originX+p.first*scale,originY+p.second*scale)
+        linePaint.strokeWidth=(1.1f*w/1920f).coerceAtLeast(0.75f)
         val opacity=if(seconds<11f) 1f else ((15f-seconds)/4f).coerceIn(0f,1f)
         if(opacity>0f) {
             linePaint.alpha=(opacity*105).toInt()
