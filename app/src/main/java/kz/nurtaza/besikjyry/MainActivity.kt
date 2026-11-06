@@ -271,57 +271,86 @@ class SkyView(context:Context): View(context) {
         }
     }
     private var milkyWayEnabled=false
-    private var milkyWaySeed=0
+    private var milkyTransitionAt=SystemClock.elapsedRealtime()
+    private var milkyFrom=0f
+    private var milkyTo=0f
+    private val milkyFadeDuration=12000L
     private data class Dust(val x:Float,val y:Float,val radius:Float,val alpha:Int)
     private var dust:List<Dust> = emptyList()
+    private var milkySlope=0f
+    private var milkyOffset=.5f
     private var sessionEnd=Long.MAX_VALUE
     private var sessionFadeMs=300000L
     fun setSessionEnd(end:Long,fade:Long) { sessionEnd=end; sessionFadeMs=fade }
+    private fun milkyOpacity(now:Long):Float {
+        val p=((now-milkyTransitionAt).toFloat()/milkyFadeDuration).coerceIn(0f,1f)
+        val smooth=p*p*(3f-2f*p)
+        return milkyFrom+(milkyTo-milkyFrom)*smooth
+    }
     fun toggleMilkyWay() {
+        val now=SystemClock.elapsedRealtime()
+        milkyFrom=milkyOpacity(now)
         milkyWayEnabled=!milkyWayEnabled
+        milkyTo=if(milkyWayEnabled) 1f else 0f
+        milkyTransitionAt=now
         if(milkyWayEnabled) {
-            milkyWaySeed++
-            val slope=(rng.nextFloat()-.5f)*0.7f
-            val offset=.35f+rng.nextFloat()*.3f
-            dust=List(1400) {
+            milkySlope=(rng.nextFloat()-.5f)*.8f
+            milkyOffset=.38f+rng.nextFloat()*.24f
+            dust=List(4200) {
                 val x=rng.nextFloat()
-                val across=(rng.nextFloat()+rng.nextFloat()+rng.nextFloat()-1.5f)*.12f
-                Dust(x,(offset+slope*(x-.5f)+across).coerceIn(0f,1f),
-                    .28f+rng.nextFloat()*.65f,8+rng.nextInt(28))
+                val spread=(rng.nextFloat()+rng.nextFloat()+rng.nextFloat()-1.5f)*.21f
+                Dust(x,(milkyOffset+milkySlope*(x-.5f)+spread).coerceIn(0f,1f),
+                    .32f+rng.nextFloat()*.95f,18+rng.nextInt(42))
             }
         }
         invalidate()
     }
-    private fun drawMilkyWay(canvas:Canvas,w:Float,h:Float) {
-        if(!milkyWayEnabled) return
+    private fun drawMilkyWay(canvas:Canvas,now:Long,w:Float,h:Float) {
+        val opacity=milkyOpacity(now)
+        if(opacity<=0f) return
+        // Low-contrast soft band plus individually randomized stars.
+        val centerY=(milkyOffset+milkySlope*(.5f-.5f))*h
+        canvas.save()
+        canvas.rotate(kotlin.math.atan2(milkySlope*h,w)*180f/Math.PI.toFloat(),w*.5f,centerY)
+        glow.shader=LinearGradient(0f,centerY-h*.23f,0f,centerY+h*.23f,
+            intArrayOf(Color.TRANSPARENT,Color.argb((opacity*18).toInt(),65,85,118),
+                Color.argb((opacity*31).toInt(),65,82,110),
+                Color.argb((opacity*18).toInt(),65,85,118),Color.TRANSPARENT),
+            null,Shader.TileMode.CLAMP)
+        canvas.drawRect(0f,0f,w,h,glow)
+        glow.shader=null
+        canvas.restore()
         for(d in dust) {
-            paint.color=Color.rgb(188,205,230)
-            paint.alpha=d.alpha
-            canvas.drawCircle(d.x*w,d.y*h,(d.radius*w/1920f).coerceAtLeast(.3f),paint)
+            paint.color=Color.rgb(194,211,233)
+            paint.alpha=(d.alpha*opacity).toInt().coerceIn(0,255)
+            canvas.drawCircle(d.x*w,d.y*h,(d.radius*w/1920f).coerceAtLeast(.45f),paint)
         }
     }
-    private data class Satellite(val start:Long,val duration:Long,val x:Float,val y:Float,val dx:Float,val dy:Float)
-    private var satellite:Satellite?=null
-    private var nextSatelliteAt=SystemClock.elapsedRealtime()+rng.nextLong(420000L,900001L)
+    private data class Satellite(val start:Long,val duration:Long,val x:Float,val y:Float,
+        val dx:Float,val dy:Float,val radius:Float,val brightness:Int)
+    private val satellites=mutableListOf<Satellite>()
+    private var nextSatelliteAt=SystemClock.elapsedRealtime()+rng.nextLong(60000L,180001L)
     private fun drawSatellite(canvas:Canvas,now:Long,w:Float,h:Float) {
-        if(satellite==null && now>=nextSatelliteAt) {
-            val dx=(if(rng.nextBoolean()) 1f else -1f)*(.65f+rng.nextFloat()*.3f)
-            satellite=Satellite(now,rng.nextLong(80000L,125001L),
-                if(dx>0) -.04f else 1.04f,.15f+rng.nextFloat()*.7f,
-                dx,(rng.nextFloat()-.5f)*.16f)
+        if(now>=nextSatelliteAt) {
+            val dx=(if(rng.nextBoolean()) 1f else -1f)*(.85f+rng.nextFloat()*.25f)
+            satellites.add(Satellite(now,rng.nextLong(110000L,190001L),
+                if(dx>0) -.06f else 1.06f,.12f+rng.nextFloat()*.76f,
+                dx,(rng.nextFloat()-.5f)*.18f,
+                1.2f+rng.nextFloat()*1.15f,110+rng.nextInt(75)))
+            // Schedule from launch time, allowing simultaneous satellites.
+            nextSatelliteAt=now+rng.nextLong(60000L,180001L)
         }
-        val sat=satellite ?: return
-        val progress=(now-sat.start).toFloat()/sat.duration
-        if(progress>=1f) {
-            satellite=null
-            nextSatelliteAt=now+rng.nextLong(420000L,900001L)
-            return
+        val it=satellites.iterator()
+        while(it.hasNext()) {
+            val sat=it.next()
+            val progress=(now-sat.start).toFloat()/sat.duration
+            if(progress>=1f) { it.remove(); continue }
+            val visibility=(min(1f,progress*12f)*min(1f,(1f-progress)*12f)).coerceIn(0f,1f)
+            paint.color=Color.rgb(207,220,238)
+            paint.alpha=(visibility*sat.brightness).toInt().coerceIn(0,255)
+            canvas.drawCircle((sat.x+sat.dx*progress)*w,(sat.y+sat.dy*progress)*h,
+                (sat.radius*w/1920f).coerceAtLeast(.9f),paint)
         }
-        val visibility=(min(1f,progress*10f)*min(1f,(1f-progress)*10f)).coerceIn(0f,1f)
-        paint.color=Color.rgb(196,213,232)
-        paint.alpha=(visibility*95f).toInt()
-        canvas.drawCircle((sat.x+sat.dx*progress)*w,(sat.y+sat.dy*progress)*h,
-            (1.0f*w/1920f).coerceAtLeast(.7f),paint)
     }
     private val order=catalog.indices.shuffled().toMutableList()
     private var index=0
@@ -433,7 +462,7 @@ class SkyView(context:Context): View(context) {
         glow.shader=RadialGradient(w*.54f,h*.48f,w*.62f,intArrayOf(Color.argb(25,35,57,100),Color.argb(8,21,43,80),Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
         canvas.drawRect(0f,0f,w,h,glow)
         glow.shader=null
-        drawMilkyWay(canvas,w,h)
+        drawMilkyWay(canvas,now,w,h)
         // Every two minutes a different ~5% cohort of background stars
         // slowly vanishes completely and returns. The other 95% keep
         // their existing independent, subtle breathing animation.
