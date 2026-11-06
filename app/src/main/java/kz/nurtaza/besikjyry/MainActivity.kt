@@ -184,13 +184,50 @@ class SkyView(context:Context): View(context) {
     private val order=catalog.indices.shuffled().toMutableList()
     private var index=0
     private var sceneStart=SystemClock.elapsedRealtime()
-    private var lastIndex=-1
+    private var outgoing:Int?=null
+    private var transitionStart=0L
+    private val transitionDuration=18000L
     private val bg=Paint(Paint.ANTI_ALIAS_FLAG)
     private val glow=Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(159,177,207); typeface=Typeface.create("sans-serif-light",Typeface.NORMAL) }
     private val linePaint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(126,165,218); strokeWidth=1.1f; style=Paint.Style.STROKE }
-    fun advance() { lastIndex=index; index++; if(index>=order.size) { order.shuffle(); index=0 }; sceneStart=SystemClock.elapsedRealtime(); invalidate() }
-    fun previous() { index=if(index==0) order.lastIndex else index-1; sceneStart=SystemClock.elapsedRealtime(); invalidate() }
+    fun advance() { change(1) }
+    fun previous() { change(-1) }
+    private fun change(direction:Int) {
+        outgoing=order[index]
+        index+=direction
+        if(index>=order.size) { order.shuffle(); index=0 }
+        if(index<0) index=order.lastIndex
+        sceneStart=SystemClock.elapsedRealtime()
+        transitionStart=sceneStart
+        invalidate()
+    }
+    private fun drawConstellation(canvas:Canvas,item:Int,opacity:Float,labelOpacity:Float) {
+        if(opacity<=0f) return
+        val w=width.toFloat(); val h=height.toFloat()
+        val c=catalog[item]
+        val scale=min(w*.58f,h*.75f)
+        val originX=w*.5f-scale*.5f; val originY=h*.5f-scale*.5f
+        fun xy(p:Pair<Float,Float>)=Pair(originX+p.first*scale,originY+p.second*scale)
+        linePaint.strokeWidth=(1.1f*w/1920f).coerceAtLeast(0.75f)
+        linePaint.alpha=(opacity*105).toInt().coerceIn(0,255)
+        for((a,b) in c.edges) {
+            val p=xy(c.points[a]); val q=xy(c.points[b])
+            canvas.drawLine(p.first,p.second,q.first,q.second,linePaint)
+        }
+        for((i,p) in c.points.withIndex()) {
+            val pos=xy(p)
+            val radius=(if(i==0) 3.4f else 2.5f+(i%3)*.35f)*w/1920f
+            paint.color=Color.rgb(226,236,255)
+            paint.alpha=(opacity*230).toInt().coerceIn(0,255)
+            canvas.drawCircle(pos.first,pos.second,radius,paint)
+        }
+        if(labelOpacity>0f) {
+            textPaint.textSize=14f*w/1920f
+            textPaint.alpha=(labelOpacity*140).toInt().coerceIn(0,255)
+            canvas.drawText("${c.kz} (${c.ru})",w*.025f,h*.95f,textPaint)
+        }
+    }
     override fun onDraw(canvas:Canvas) {
         super.onDraw(canvas)
         val w=width.toFloat(); val h=height.toFloat()
@@ -207,36 +244,25 @@ class SkyView(context:Context): View(context) {
         glow.shader=null
         for(s in stars) {
             val breathing=(0.5f+0.5f*cos((t/s.period)*6.283185f+s.phase)).toFloat()
-            val a=(s.alpha*(0.13f+0.87f*breathing)).coerceIn(0f,1f)
+            val a=(s.alpha*(0.28f+0.72f*breathing)).coerceIn(0f,1f)
             val x=s.x*w; val y=s.y*h
             paint.color=if(s.warm) Color.rgb(242,224,207) else Color.rgb(198,220,255)
             paint.alpha=(a*255).toInt()
             canvas.drawCircle(x,y,s.size*w/1920f,paint)
         }
-        val c=catalog[order[index]]
-        val scale=min(w*.58f,h*.75f)
-        val originX=w*.5f-scale*.5f
-        val originY=h*.5f-scale*.5f
-        fun xy(p:Pair<Float,Float>):Pair<Float,Float> = Pair(originX+p.first*scale,originY+p.second*scale)
-        linePaint.strokeWidth=(1.1f*w/1920f).coerceAtLeast(0.75f)
-        val opacity=if(seconds<11f) 1f else ((15f-seconds)/4f).coerceIn(0f,1f)
-        if(opacity>0f) {
-            linePaint.alpha=(opacity*105).toInt()
-            for((a,b) in c.edges) { val p=xy(c.points[a]); val q=xy(c.points[b]); canvas.drawLine(p.first,p.second,q.first,q.second,linePaint) }
-            textPaint.textSize=14f*w/1920f
-            textPaint.alpha=(opacity*140).toInt()
-            canvas.drawText("${c.kz} (${c.ru})",w*.025f,h*.95f,textPaint)
-        }
-        for((i,p) in c.points.withIndex()) {
-            val pos=xy(p)
-            val radius=(if(i==0) 3.4f else 2.5f+(i%3)*.35f)*w/1920f
-            glow.shader=RadialGradient(pos.first,pos.second,radius*7f,intArrayOf(Color.argb(35,155,192,255),Color.argb(8,140,185,250),Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
-            canvas.drawCircle(pos.first,pos.second,radius*7f,glow)
-            glow.shader=null
-            paint.color=Color.rgb(226,236,255);paint.alpha=230
-            canvas.drawCircle(pos.first,pos.second,radius,paint)
+        val elapsed=now-transitionStart
+        val transitioning=outgoing!=null && elapsed<transitionDuration
+        if(transitioning) {
+            val progress=(elapsed.toFloat()/transitionDuration).coerceIn(0f,1f)
+            val smooth=progress*progress*(3f-2f*progress)
+            drawConstellation(canvas,outgoing!!,1f-smooth,0f)
+            drawConstellation(canvas,order[index],smooth,smooth)
+        } else {
+            outgoing=null
+            val labelOpacity=if(seconds<11f) 1f else ((15f-seconds)/4f).coerceIn(0f,1f)
+            drawConstellation(canvas,order[index],1f,labelOpacity)
         }
         // Refresh at display cadence; actual frame rate depends on projector hardware.
-        postInvalidateDelayed(16L)
+        postInvalidateDelayed(100L)
     }
 }
