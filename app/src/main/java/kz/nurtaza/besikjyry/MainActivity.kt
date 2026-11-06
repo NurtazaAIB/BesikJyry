@@ -273,7 +273,7 @@ class SkyView(context:Context): View(context) {
         transitionStart=sceneStart
         invalidate()
     }
-    private fun drawConstellation(canvas:Canvas,item:Int,opacity:Float,labelOpacity:Float) {
+    private fun drawConstellation(canvas:Canvas,item:Int,opacity:Float,labelOpacity:Float,lineOpacity:Float=labelOpacity) {
         if(opacity<=0f) return
         val w=width.toFloat(); val h=height.toFloat()
         val c=catalog[item]
@@ -281,7 +281,7 @@ class SkyView(context:Context): View(context) {
         val originX=w*.5f-scale*.5f; val originY=h*.5f-scale*.5f
         fun xy(p:Pair<Float,Float>)=Pair(originX+p.first*scale,originY+p.second*scale)
         linePaint.strokeWidth=(1.1f*w/1920f).coerceAtLeast(0.75f)
-        linePaint.alpha=(opacity*105).toInt().coerceIn(0,255)
+        linePaint.alpha=(lineOpacity*105).toInt().coerceIn(0,255)
         for((a,b) in c.edges) {
             val p=xy(c.points[a]); val q=xy(c.points[b])
             canvas.drawLine(p.first,p.second,q.first,q.second,linePaint)
@@ -336,8 +336,12 @@ class SkyView(context:Context): View(context) {
             }
         } else {
             outgoing=null
-            val labelOpacity=if(seconds<20f) 1f else ((24f-seconds)/4f).coerceIn(0f,1f)
-            drawConstellation(canvas,order[index],1f,labelOpacity)
+            // Lines and label remain for 11 seconds after the new constellation
+            // is fully visible, then fade together over the next 4 seconds.
+            val fullyVisibleAt=if(transitionStart==0L) sceneStart else transitionStart+transitionDuration
+            val visibleSeconds=((now-fullyVisibleAt).coerceAtLeast(0L))/1000f
+            val guideOpacity=if(visibleSeconds<11f) 1f else ((15f-visibleSeconds)/4f).coerceIn(0f,1f)
+            drawConstellation(canvas,order[index],1f,guideOpacity,guideOpacity)
         }
         // Refresh at display cadence; actual frame rate depends on projector hardware.
         postInvalidateDelayed(100L)
