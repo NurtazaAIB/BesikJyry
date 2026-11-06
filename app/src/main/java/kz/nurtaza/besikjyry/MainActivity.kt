@@ -279,9 +279,9 @@ class SkyView(context:Context): View(context) {
             val angle=(if(rng.nextBoolean()) 1f else -1f)*(0.25f+rng.nextFloat()*0.65f)
             val dx=(0.12f+rng.nextFloat()*0.16f)*(if(rng.nextBoolean()) 1f else -1f)
             val dy=dx*angle
-            comet=Comet(now,rng.nextLong(2600L,5100L),
+            comet=Comet(now,rng.nextLong(4500L,7001L),
                 0.12f+rng.nextFloat()*0.70f,0.15f+rng.nextFloat()*0.65f,
-                dx,dy,0.12f+rng.nextFloat()*0.23f,0.012f+rng.nextFloat()*0.018f)
+                dx,dy,0.48f+rng.nextFloat()*0.22f,0.018f+rng.nextFloat()*0.022f)
         }
         val c=comet ?: return
         val p=(now-c.start).toFloat()/c.duration
@@ -298,15 +298,15 @@ class SkyView(context:Context): View(context) {
         val tx=x-c.dx*w/magnitude*tailLength
         val ty=y-c.dy*h/magnitude*tailLength
         val alpha=(c.brightness*envelope*255f).toInt().coerceIn(0,255)
-        cometPaint.strokeWidth=(0.8f*w/1920f).coerceAtLeast(0.6f)
+        cometPaint.strokeWidth=(1.35f*w/1920f).coerceAtLeast(1.0f)
         cometPaint.shader=LinearGradient(tx,ty,x,y,
-            intArrayOf(Color.TRANSPARENT,Color.argb(alpha/3,170,196,230),
+            intArrayOf(Color.TRANSPARENT,Color.argb(alpha/2,170,196,230),
                 Color.argb(alpha,205,222,246)),null,Shader.TileMode.CLAMP)
         canvas.drawLine(tx,ty,x,y,cometPaint)
         cometPaint.shader=null
         paint.color=Color.rgb(205,222,246)
         paint.alpha=alpha
-        canvas.drawCircle(x,y,(0.75f*w/1920f).coerceAtLeast(0.5f),paint)
+        canvas.drawCircle(x,y,(1.5f*w/1920f).coerceAtLeast(1.1f),paint)
     }
     private val bg=Paint(Paint.ANTI_ALIAS_FLAG)
     private val glow=Paint(Paint.ANTI_ALIAS_FLAG)
