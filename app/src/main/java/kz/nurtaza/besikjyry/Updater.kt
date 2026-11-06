@@ -20,6 +20,7 @@ class Updater(private val activity: Activity) {
     private val manager = activity.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
     private var downloadId = -1L
     private var receiver: BroadcastReceiver? = null
+    private val prefs = activity.getSharedPreferences("updater", Context.MODE_PRIVATE)
 
     fun checkOnLaunch() {
         Thread {
@@ -44,7 +45,16 @@ class Updater(private val activity: Activity) {
                 val localVersion = activity.packageManager.getPackageInfo(activity.packageName,0).versionCode
                 if (url != null && releaseVersion != null && releaseVersion > localVersion) {
                     val downloadUrl = url
-                    activity.runOnUiThread { download(downloadUrl) }
+                    val lastVersion=prefs.getInt("offered_version",-1)
+                    val lastTime=prefs.getLong("offered_at",0L)
+                    val now=System.currentTimeMillis()
+                    if(lastVersion!=releaseVersion || now-lastTime>=86400000L || now<lastTime) {
+                        activity.runOnUiThread {
+                            prefs.edit().putInt("offered_version",releaseVersion)
+                                .putLong("offered_at",System.currentTimeMillis()).apply()
+                            download(downloadUrl)
+                        }
+                    }
                 }
             } catch (_: Exception) {
                 // Offline playback must work even if update checks fail.
