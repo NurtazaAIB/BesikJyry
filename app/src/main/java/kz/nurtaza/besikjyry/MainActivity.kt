@@ -51,6 +51,7 @@ class MainActivity: Activity() {
     private var current: Uri? = null
     private val random = Random()
     private lateinit var sky: SkyView
+    private lateinit var updater: Updater
     private val handler = Handler(Looper.getMainLooper())
     private var startedAt = 0L
     private val stop = Runnable { player?.stop(); player?.release(); player=null; finish() }
@@ -60,6 +61,8 @@ class MainActivity: Activity() {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         sky = SkyView(this)
         setContentView(sky)
+        updater = Updater(this)
+        updater.checkOnLaunch()
         startedAt = SystemClock.elapsedRealtime()
         handler.postDelayed(stop, 60*60*1000L)
         val stored=prefs.getString("folder",null)
@@ -134,6 +137,7 @@ class MainActivity: Activity() {
         return super.onKeyDown(keyCode,event)
     }
     override fun onDestroy() {
+        updater.close()
         handler.removeCallbacks(stop)
         player?.release()
         player=null
