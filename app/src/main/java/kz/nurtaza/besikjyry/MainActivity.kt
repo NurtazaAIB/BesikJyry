@@ -554,7 +554,8 @@ class SkyView(context:Context): View(context) {
         if(labelOpacity>0f) {
             textPaint.textSize=28f*w/1920f
             textPaint.alpha=(labelOpacity*140).toInt().coerceIn(0,255)
-            canvas.drawText("${c.kz} - ${c.en} - ${c.ru}",w*.025f,h*.95f,textPaint)
+            val label=if(c.kz.equals(c.ru,ignoreCase=true)) "${c.kz} - ${c.en}" else "${c.kz} - ${c.en} - ${c.ru}"
+            canvas.drawText(label,w*.025f,h*.95f,textPaint)
         }
     }
     override fun onDraw(canvas:Canvas) {
