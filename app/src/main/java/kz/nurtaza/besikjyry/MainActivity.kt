@@ -2,6 +2,11 @@ package kz.nurtaza.besikjyry
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.Manifest
+import android.content.pm.PackageManager
+import android.provider.MediaStore
+import android.os.Environment
+import java.io.File
 import android.content.Intent
 import android.content.Context
 import android.graphics.*
@@ -66,11 +71,77 @@ class MainActivity: Activity() {
         updater.checkOnLaunch()
         startedAt = SystemClock.elapsedRealtime()
         handler.postDelayed(stop, 60*60*1000L)
-        val stored=prefs.getString("folder",null)
+        ensureMusicAccess()
+        /* val stored=prefs.getString("folder",null)
         if(stored==null) promptFolder() else {
             try { loadFolder(Uri.parse(stored)); if(tracks.isEmpty()) promptFolder("MP3 не найдены. Выберите Music/BesikJyry.") else playNext() }
             catch (e:Exception) { promptFolder("Нет доступа к папке: ${e.message}") }
+        } */
+    }
+    private fun audioPermission():String =
+        if(Build.VERSION.SDK_INT>=33) Manifest.permission.READ_MEDIA_AUDIO else Manifest.permission.READ_EXTERNAL_STORAGE
+    private fun ensureMusicAccess() {
+        if(Build.VERSION.SDK_INT>=23 && checkSelfPermission(audioPermission())!=PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(audioPermission()),72)
+        } else startLocalMusic()
+    }
+    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode==72) {
+            if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) startLocalMusic()
+            else AlertDialog.Builder(this).setTitle("Доступ к музыке")
+                .setMessage("Разрешите доступ к аудиофайлам в настройках приложения. Без этого MP3 не прочитать.")
+                .setPositiveButton("Повторить") { _, _ -> ensureMusicAccess() }
+                .setNegativeButton("Позже",null).show()
         }
+    }
+    private fun startLocalMusic() {
+        try {
+            loadLocalMusic()
+            if(tracks.isEmpty()) {
+                AlertDialog.Builder(this).setTitle("MP3 не найдены")
+                    .setMessage("Положите MP3 во внутреннюю память: Music/BesikJyry (без вложенных папок). Затем нажмите «Повторить».")
+                    .setPositiveButton("Повторить") { _, _ -> startLocalMusic() }
+                    .setNegativeButton("Позже",null).show()
+            } else {
+                queue.clear()
+                Toast.makeText(this,"Найдено MP3: ${tracks.size}",Toast.LENGTH_LONG).show()
+                playNext()
+            }
+        } catch(e:Exception) {
+            AlertDialog.Builder(this).setTitle("Ошибка поиска MP3")
+                .setMessage(e.message ?: "Не удалось прочитать музыку")
+                .setPositiveButton("Повторить") { _, _ -> startLocalMusic() }
+                .setNegativeButton("Позже",null).show()
+        }
+    }
+    private fun loadLocalMusic() {
+        val found=mutableListOf<Uri>()
+        val collection=if(Build.VERSION.SDK_INT>=29) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+            else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+        val columns=arrayOf(MediaStore.Audio.Media._ID,MediaStore.Audio.Media.DISPLAY_NAME,MediaStore.Audio.Media.RELATIVE_PATH)
+        val projection=if(Build.VERSION.SDK_INT>=29) columns else columns.take(2).toTypedArray()
+        contentResolver.query(collection,projection,null,null,null)?.use { cursor ->
+            val idColumn=cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+            val nameColumn=cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DISPLAY_NAME)
+            val pathColumn=if(Build.VERSION.SDK_INT>=29) cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH) else -1
+            while(cursor.moveToNext()) {
+                val name=cursor.getString(nameColumn) ?: continue
+                if(!name.endsWith(".mp3",true)) continue
+                val id=cursor.getLong(idColumn)
+                if(pathColumn>=0) {
+                    val relative=(cursor.getString(pathColumn) ?: "").trim('/').lowercase()
+                    if(relative!="music/besikjyry") continue
+                }
+                found.add(android.content.ContentUris.withAppendedId(collection,id))
+            }
+        }
+        if(Build.VERSION.SDK_INT<29) {
+            found.clear()
+            val folder=File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC),"BesikJyry")
+            folder.listFiles()?.filter { it.isFile && it.extension.equals("mp3",true) }?.forEach { found.add(Uri.fromFile(it)) }
+        }
+        tracks=found.distinct().toMutableList()
     }
     private fun promptFolder(message:String="Выберите папку Music/BesikJyry с MP3 и разрешите доступ.") {
         AlertDialog.Builder(this).setTitle("Музыка для Бесік жыры").setMessage(message)
@@ -113,13 +184,13 @@ class MainActivity: Activity() {
         tracks=result
     }
     private fun refill() {
-        prefs.getString("folder",null)?.let { try { loadFolder(Uri.parse(it)) } catch (_:Exception) {} }
+        try { loadLocalMusic() } catch (_:Exception) {}
         queue=tracks.shuffled(random).toMutableList()
         if(queue.size>1 && queue.first()==current) queue.add(queue.removeAt(0))
     }
     private fun playNext() {
         if(queue.isEmpty()) refill()
-        if(queue.isEmpty()) { promptFolder("MP3 не найдены. Выберите Music/BesikJyry."); return }
+        if(queue.isEmpty()) { startLocalMusic(); return }
         val next=queue.removeAt(0)
         play(next,true)
     }
@@ -140,13 +211,13 @@ class MainActivity: Activity() {
             player?.release(); player=null
             consecutiveFailures++
             if(consecutiveFailures<3 && queue.isNotEmpty()) playNext()
-            else { consecutiveFailures=0; promptFolder("Ошибка воспроизведения MP3: ${e.message}. Выберите папку снова.") }
+            else { consecutiveFailures=0; AlertDialog.Builder(this).setTitle("Ошибка MP3").setMessage(e.message ?: "Не удалось воспроизвести файл").setPositiveButton("OK",null).show() }
         }
     }
     override fun onKeyDown(keyCode:Int,event:KeyEvent?):Boolean {
         when(keyCode) {
-            KeyEvent.KEYCODE_MENU -> { chooseFolder(); return true }
-            KeyEvent.KEYCODE_DPAD_CENTER -> { if(player==null) { chooseFolder(); return true } }
+            KeyEvent.KEYCODE_MENU -> { startLocalMusic(); return true }
+            KeyEvent.KEYCODE_DPAD_CENTER -> { if(player==null) { ensureMusicAccess(); return true } }
             KeyEvent.KEYCODE_DPAD_RIGHT -> { playNext(); sky.advance(); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
                 if(history.size>1) { history.removeAt(history.lastIndex); val prev=history.last(); play(prev,false) }
