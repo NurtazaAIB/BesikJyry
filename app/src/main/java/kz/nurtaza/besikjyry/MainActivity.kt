@@ -233,7 +233,7 @@ class MainActivity: Activity() {
         when(keyCode) {
             KeyEvent.KEYCODE_MENU -> { startLocalMusic(); return true }
             KeyEvent.KEYCODE_DPAD_CENTER -> { if(player==null) { ensureMusicAccess(); return true } }
-            KeyEvent.KEYCODE_DPAD_UP -> { sky.requestComet(); return true }
+            KeyEvent.KEYCODE_DPAD_UP -> { sky.requestNextSkyObject(); return true }
             KeyEvent.KEYCODE_DPAD_DOWN -> { sky.toggleMilkyWay(); return true }
             KeyEvent.KEYCODE_DPAD_RIGHT -> { playNext(); sky.advance(); return true }
             KeyEvent.KEYCODE_DPAD_LEFT -> {
@@ -327,19 +327,33 @@ class SkyView(context:Context): View(context) {
         }
     }
     private data class Satellite(val start:Long,val duration:Long,val x:Float,val y:Float,
-        val dx:Float,val dy:Float,val radius:Float,val brightness:Int,val twinkles:Boolean)
+        val dx:Float,val dy:Float,val radius:Float,val brightness:Int,val twinkles:Boolean,val color:Int)
     private val satellites=mutableListOf<Satellite>()
     private var satelliteCount=0
     private var nextSatelliteAt=SystemClock.elapsedRealtime()+rng.nextLong(60000L,180001L)
+    private fun satelliteColor():Int = when(rng.nextInt(100)) {
+        in 0..74 -> Color.rgb(220,227,236)
+        in 75..89 -> Color.rgb(202,218,240)
+        else -> Color.rgb(240,226,202)
+    }
+    private fun launchSatellite(now:Long) {
+        val dx=(if(rng.nextBoolean()) 1f else -1f)*(.85f+rng.nextFloat()*.25f)
+        satelliteCount++
+        satellites.add(Satellite(now,rng.nextLong(110000L,190001L),
+            if(dx>0) -.06f else 1.06f,.12f+rng.nextFloat()*.76f,
+            dx,(rng.nextFloat()-.5f)*.18f,
+            1.2f+rng.nextFloat()*1.15f,110+rng.nextInt(75),
+            satelliteCount%2==0,satelliteColor()))
+    }
+    private var upPressCount=0
+    fun requestNextSkyObject() {
+        upPressCount++
+        if(upPressCount%2==1) requestComet()
+        else postDelayed({ launchSatellite(SystemClock.elapsedRealtime()); invalidate() },5000L)
+    }
     private fun drawSatellite(canvas:Canvas,now:Long,w:Float,h:Float) {
         if(now>=nextSatelliteAt) {
-            val dx=(if(rng.nextBoolean()) 1f else -1f)*(.85f+rng.nextFloat()*.25f)
-            satelliteCount++
-            satellites.add(Satellite(now,rng.nextLong(110000L,190001L),
-                if(dx>0) -.06f else 1.06f,.12f+rng.nextFloat()*.76f,
-                dx,(rng.nextFloat()-.5f)*.18f,
-                1.2f+rng.nextFloat()*1.15f,110+rng.nextInt(75),satelliteCount%2==0))
-            // Schedule from launch time, allowing simultaneous satellites.
+            launchSatellite(now)
             nextSatelliteAt=now+rng.nextLong(60000L,180001L)
         }
         val it=satellites.iterator()
@@ -348,7 +362,7 @@ class SkyView(context:Context): View(context) {
             val progress=(now-sat.start).toFloat()/sat.duration
             if(progress>=1f) { it.remove(); continue }
             val visibility=(min(1f,progress*12f)*min(1f,(1f-progress)*12f)).coerceIn(0f,1f)
-            paint.color=Color.rgb(207,220,238)
+            paint.color=sat.color
             val twinkle=if(sat.twinkles) (0.7f+0.3f*kotlin.math.cos((now-sat.start)/1000f*1.4f)) else 1f
             paint.alpha=(visibility*sat.brightness*twinkle).toInt().coerceIn(0,255)
             canvas.drawCircle((sat.x+sat.dx*progress)*w,(sat.y+sat.dy*progress)*h,
