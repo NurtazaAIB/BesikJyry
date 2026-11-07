@@ -541,60 +541,96 @@ class SkyView(context:Context): View(context) {
         paint.alpha=alpha
         canvas.drawCircle(x,y,(1.5f*w/1920f).coerceAtLeast(1.1f),paint)
     }
-    // Optional 20-second lunar phase overlay, activated only by OK/Enter.
+    // Cached, locally rendered lunar surface. No network or per-frame texture allocation.
     private var moonShownAt=-30000L
     private var moonLatitude:Double?=null
-    private var moonLongitude:Double?=null
+    private var moonBitmap:Bitmap?=null
+    private val moonDisplayPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     fun showMoon(latitude:Double?,longitude:Double?) {
         moonLatitude=latitude
-        moonLongitude=longitude
+        moonBitmap=createMoonBitmap()
         moonShownAt=SystemClock.elapsedRealtime()
         invalidate()
+    }
+    private fun lunarNoise(x:Double,y:Double,scale:Double):Double {
+        val px=x*scale; val py=y*scale
+        val ix=floor(px).toInt(); val iy=floor(py).toInt()
+        val fx=px-floor(px); val fy=py-floor(py)
+        val tx=fx*fx*(3.0-2.0*fx); val ty=fy*fy*(3.0-2.0*fy)
+        fun hash(a:Int,b:Int):Double {
+            var h=a*374761393+b*668265263+0x27d4eb2d
+            h=(h xor (h ushr 13))*1274126177
+            return ((h xor (h ushr 16)).toLong() and 0x7fffffffL).toDouble()/2147483647.0
+        }
+        val top=hash(ix,iy)*(1.0-tx)+hash(ix+1,iy)*tx
+        val bottom=hash(ix,iy+1)*(1.0-tx)+hash(ix+1,iy+1)*tx
+        return top*(1.0-ty)+bottom*ty
+    }
+    private fun createMoonBitmap():Bitmap {
+        val n=256
+        val bitmap=Bitmap.createBitmap(n,n,Bitmap.Config.ARGB_8888)
+        val pixels=IntArray(n*n)
+        val phase=((System.currentTimeMillis()-947182440000.0)/86400000.0/29.530588853).let { it-floor(it) }
+        // Solar direction relative to the visible lunar disc, phase 0=new, 0.5=full.
+        val sunX=sin(2.0*Math.PI*phase)
+        val sunZ=-cos(2.0*Math.PI*phase)
+        val maria=arrayOf(
+            doubleArrayOf(-.28,-.20,.28,.19,.30),doubleArrayOf(.18,-.31,.22,.25,.27),
+            doubleArrayOf(.40,.06,.17,.25,.24),doubleArrayOf(-.07,.28,.22,.18,.21),
+            doubleArrayOf(-.42,.28,.18,.15,.16),doubleArrayOf(.04,-.02,.12,.16,.12)
+        )
+        val craters=Array(110) { i ->
+            val angle=i*2.399963229728653
+            val distance=sqrt((i+.5)/110.0)*.94
+            val x=cos(angle)*distance; val y=sin(angle)*distance
+            val radius=.008+(lunarNoise(i.toDouble(),2.0,1.0)*.033)
+            doubleArrayOf(x,y,radius)
+        }
+        for(iy in 0 until n) for(ix in 0 until n) {
+            val x=(ix-(n-1)/2.0)/(n*.47)
+            val y=(iy-(n-1)/2.0)/(n*.47)
+            val r2=x*x+y*y
+            if(r2>1.0) continue
+            val z=sqrt(1.0-r2)
+            var terrain=0.63+0.12*(lunarNoise(x,y,5.0)-.5)+
+                0.09*(lunarNoise(x,y,16.0)-.5)+0.05*(lunarNoise(x,y,48.0)-.5)
+            for(m in maria) {
+                val dx=(x-m[0])/m[2]; val dy=(y-m[1])/m[3]
+                val d=dx*dx+dy*dy
+                terrain-=m[4]*exp(-d*1.7)
+            }
+            for(c in craters) {
+                val dx=x-c[0]; val dy=y-c[1]
+                val distance=sqrt(dx*dx+dy*dy)/c[2]
+                if(distance<1.8) {
+                    terrain+=.075*exp(-((distance-1.0)*(distance-1.0))/.055)
+                    terrain-=.055*exp(-distance*distance*2.2)
+                    terrain+=.025*(dx/c[2])*exp(-((distance-1.0)*(distance-1.0))/.08)
+                }
+            }
+            val light=(x*sunX+z*sunZ).coerceAtLeast(0.0)
+            // Low ambient reflected earthlight preserves a faint dark hemisphere.
+            val brightness=terrain*(.035+.965*sqrt(light))*z.pow(.12)
+            val value=(brightness*255.0).toInt().coerceIn(0,255)
+            pixels[iy*n+ix]=Color.argb(255,value,(value*.99).toInt(),(value*.95).toInt())
+        }
+        bitmap.setPixels(pixels,0,n,0,0,n,n)
+        return bitmap
     }
     private fun drawMoon(canvas:Canvas,now:Long,w:Float,h:Float) {
         val elapsed=now-moonShownAt
         if(elapsed<0L || elapsed>=20000L) return
+        val bitmap=moonBitmap ?: return
         val fadeIn=(elapsed/3000f).coerceIn(0f,1f)
         val fadeOut=((20000L-elapsed)/5000f).coerceIn(0f,1f)
         val opacity=(fadeIn*fadeIn*(3f-2f*fadeIn)*fadeOut).coerceIn(0f,1f)
-        // Synodic lunar month, epoch near new moon 2000-01-06 18:14 UTC.
-        val age=((System.currentTimeMillis()-947182440000.0)/86400000.0/29.530588853).let { it-floor(it) }
-        val illuminated=(1.0-cos(2.0*Math.PI*age))/2.0
-        val waxing=age<0.5
         val radius=min(w*.037f,h*.068f).coerceAtLeast(10f)
-        val cx=w*.932f
-        val cy=h*.115f
+        val cx=w*.932f; val cy=h*.115f
         val save=canvas.save()
-        // Southern-hemisphere view reverses the familiar north-up waxing side.
-        // Exact apparent lunar tilt requires full ephemeris and is not simulated here.
+        // Southern hemisphere reverses the conventional north-up appearance.
         canvas.rotate(if((moonLatitude ?: 0.0)<0.0) 180f else 0f,cx,cy)
-        val moonPaint=Paint(Paint.ANTI_ALIAS_FLAG)
-        moonPaint.color=Color.rgb(19,25,39)
-        moonPaint.alpha=(opacity*210).toInt().coerceIn(0,255)
-        canvas.drawCircle(cx,cy,radius,moonPaint)
-        val phasePath=Path()
-        val steps=90
-        for(i in 0..steps) {
-            val y=-radius+2f*radius*i/steps
-            val outer=sqrt((radius*radius-y*y).coerceAtLeast(0f))
-            val x=if(waxing) outer else -outer
-            if(i==0) phasePath.moveTo(cx+x,cy+y) else phasePath.lineTo(cx+x,cy+y)
-        }
-        for(i in steps downTo 0) {
-            val y=-radius+2f*radius*i/steps
-            val outer=sqrt((radius*radius-y*y).coerceAtLeast(0f))
-            val terminator=if(waxing) (1.0-2.0*illuminated).toFloat()*outer else (2.0*illuminated-1.0).toFloat()*outer
-            phasePath.lineTo(cx+terminator,cy+y)
-        }
-        phasePath.close()
-        moonPaint.color=Color.rgb(224,226,215)
-        moonPaint.alpha=(opacity*225).toInt().coerceIn(0,255)
-        canvas.drawPath(phasePath,moonPaint)
-        moonPaint.style=Paint.Style.STROKE
-        moonPaint.strokeWidth=(w/1920f).coerceAtLeast(.6f)
-        moonPaint.color=Color.rgb(127,144,163)
-        moonPaint.alpha=(opacity*60).toInt().coerceIn(0,255)
-        canvas.drawCircle(cx,cy,radius,moonPaint)
+        moonDisplayPaint.alpha=(opacity*255).toInt().coerceIn(0,255)
+        canvas.drawBitmap(bitmap,null,RectF(cx-radius,cy-radius,cx+radius,cy+radius),moonDisplayPaint)
         canvas.restoreToCount(save)
     }
     private val bg=Paint(Paint.ANTI_ALIAS_FLAG)
