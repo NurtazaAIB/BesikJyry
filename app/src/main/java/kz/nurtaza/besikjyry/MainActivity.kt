@@ -10,6 +10,7 @@ import android.os.Environment
 import java.io.File
 import android.content.Intent
 import android.content.Context
+import android.location.LocationManager
 import android.graphics.*
 import android.media.MediaPlayer
 import android.net.Uri
@@ -128,6 +129,29 @@ class MainActivity: Activity() {
     private var current: Uri? = null
     private val random = Random(System.currentTimeMillis())
     private lateinit var sky: SkyView
+    private val moonLocationPermission=4017
+    private fun showMoonWithLocation() {
+        if (android.os.Build.VERSION.SDK_INT>=23 && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)!=PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.ACCESS_COARSE_LOCATION),moonLocationPermission)
+        } else showMoonNow()
+    }
+    private fun showMoonNow() {
+        var latitude:Double?=null
+        var longitude:Double?=null
+        try {
+            val manager=getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val location=listOf(LocationManager.NETWORK_PROVIDER,LocationManager.GPS_PROVIDER)
+                .mapNotNull { provider -> try { manager.getLastKnownLocation(provider) } catch (_:Exception) { null } }
+                .maxByOrNull { it.time }
+            latitude=location?.latitude
+            longitude=location?.longitude
+        } catch (_:Exception) { }
+        sky.showMoon(latitude,longitude)
+    }
+    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {
+        super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode==moonLocationPermission) showMoonNow()
+    }
     private lateinit var updater: Updater
     private val handler = Handler(Looper.getMainLooper())
     private var startedAt = 0L
@@ -323,7 +347,10 @@ class MainActivity: Activity() {
     override fun onKeyDown(keyCode:Int,event:KeyEvent?):Boolean {
         when(keyCode) {
             KeyEvent.KEYCODE_MENU -> { startLocalMusic(); return true }
-            KeyEvent.KEYCODE_DPAD_CENTER -> { if(player==null) { ensureMusicAccess(); return true } }
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                if(player==null) ensureMusicAccess() else showMoonWithLocation()
+                return true
+            }
             KeyEvent.KEYCODE_DPAD_UP -> { sky.requestNextSkyObject(); return true }
             KeyEvent.KEYCODE_DPAD_DOWN -> { sky.toggleMilkyWay(); return true }
             KeyEvent.KEYCODE_DPAD_RIGHT -> { playNext(); sky.advance(); return true }
@@ -517,6 +544,60 @@ class SkyView(context:Context): View(context) {
         paint.alpha=alpha
         canvas.drawCircle(x,y,(1.5f*w/1920f).coerceAtLeast(1.1f),paint)
     }
+    // Optional 20-second lunar phase overlay, activated only by OK/Enter.
+    private var moonShownAt=-30000L
+    private var moonLatitude:Double?=null
+    private var moonLongitude:Double?=null
+    fun showMoon(latitude:Double?,longitude:Double?) {
+        moonLatitude=latitude
+        moonLongitude=longitude
+        moonShownAt=SystemClock.elapsedRealtime()
+        invalidate()
+    }
+    private fun drawMoon(canvas:Canvas,now:Long,w:Float,h:Float) {
+        val elapsed=now-moonShownAt
+        if(elapsed<0L || elapsed>=20000L) return
+        val fadeIn=(elapsed/3000f).coerceIn(0f,1f)
+        val fadeOut=((20000L-elapsed)/5000f).coerceIn(0f,1f)
+        val opacity=(fadeIn*fadeIn*(3f-2f*fadeIn)*fadeOut).coerceIn(0f,1f)
+        // Synodic lunar month, epoch near new moon 2000-01-06 18:14 UTC.
+        val age=((System.currentTimeMillis()-947182440000.0)/86400000.0/29.530588853).let { it-floor(it) }
+        val illuminated=(1.0-cos(2.0*Math.PI*age))/2.0
+        val waxing=age<0.5
+        val radius=min(w*.037f,h*.068f).coerceAtLeast(10f)
+        val cx=w*.932f
+        val cy=h*.115f
+        val save=canvas.save()
+        canvas.rotate(0f,cx,cy)
+        val moonPaint=Paint(Paint.ANTI_ALIAS_FLAG)
+        moonPaint.color=Color.rgb(19,25,39)
+        moonPaint.alpha=(opacity*210).toInt().coerceIn(0,255)
+        canvas.drawCircle(cx,cy,radius,moonPaint)
+        val phasePath=Path()
+        val steps=90
+        for(i in 0..steps) {
+            val y=-radius+2f*radius*i/steps
+            val outer=sqrt((radius*radius-y*y).coerceAtLeast(0f))
+            val x=if(waxing) outer else -outer
+            if(i==0) phasePath.moveTo(cx+x,cy+y) else phasePath.lineTo(cx+x,cy+y)
+        }
+        for(i in steps downTo 0) {
+            val y=-radius+2f*radius*i/steps
+            val outer=sqrt((radius*radius-y*y).coerceAtLeast(0f))
+            val terminator=if(waxing) (1.0-2.0*illuminated).toFloat()*outer else (2.0*illuminated-1.0).toFloat()*outer
+            phasePath.lineTo(cx+terminator,cy+y)
+        }
+        phasePath.close()
+        moonPaint.color=Color.rgb(224,226,215)
+        moonPaint.alpha=(opacity*225).toInt().coerceIn(0,255)
+        canvas.drawPath(phasePath,moonPaint)
+        moonPaint.style=Paint.Style.STROKE
+        moonPaint.strokeWidth=(w/1920f).coerceAtLeast(.6f)
+        moonPaint.color=Color.rgb(127,144,163)
+        moonPaint.alpha=(opacity*60).toInt().coerceIn(0,255)
+        canvas.drawCircle(cx,cy,radius,moonPaint)
+        canvas.restoreToCount(save)
+    }
     private val bg=Paint(Paint.ANTI_ALIAS_FLAG)
     private val glow=Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint=Paint(Paint.ANTI_ALIAS_FLAG).apply { color=Color.rgb(159,177,207); typeface=Typeface.create("sans-serif-light",Typeface.NORMAL) }
@@ -612,6 +693,7 @@ class SkyView(context:Context): View(context) {
         }
         drawComet(canvas,now,w,h)
         drawSatellite(canvas,now,w,h)
+        drawMoon(canvas,now,w,h)
         val elapsed=now-transitionStart
         val transitioning=outgoing!=null && elapsed<transitionDuration
         if(transitioning) {
