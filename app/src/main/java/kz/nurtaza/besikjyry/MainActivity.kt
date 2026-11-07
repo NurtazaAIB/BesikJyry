@@ -568,7 +568,9 @@ class SkyView(context:Context): View(context) {
         val cx=w*.932f
         val cy=h*.115f
         val save=canvas.save()
-        canvas.rotate(0f,cx,cy)
+        // Southern-hemisphere view reverses the familiar north-up waxing side.
+        // Exact apparent lunar tilt requires full ephemeris and is not simulated here.
+        canvas.rotate(if((moonLatitude ?: 0.0)<0.0) 180f else 0f,cx,cy)
         val moonPaint=Paint(Paint.ANTI_ALIAS_FLAG)
         moonPaint.color=Color.rgb(19,25,39)
         moonPaint.alpha=(opacity*210).toInt().coerceIn(0,255)
