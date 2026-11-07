@@ -148,10 +148,6 @@ class MainActivity: Activity() {
         } catch (_:Exception) { }
         sky.showMoon(latitude,longitude)
     }
-    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {
-        super.onRequestPermissionsResult(requestCode,permissions,grantResults)
-        if(requestCode==moonLocationPermission) showMoonNow()
-    }
     private lateinit var updater: Updater
     private val handler = Handler(Looper.getMainLooper())
     private var startedAt = 0L
@@ -214,6 +210,7 @@ class MainActivity: Activity() {
     }
     override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {
         super.onRequestPermissionsResult(requestCode,permissions,grantResults)
+        if(requestCode==moonLocationPermission) { showMoonNow(); return }
         if(requestCode==72) {
             if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) startLocalMusic()
             else AlertDialog.Builder(this).setTitle("Доступ к музыке")
