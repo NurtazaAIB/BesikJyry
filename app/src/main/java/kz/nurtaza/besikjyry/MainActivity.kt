@@ -411,7 +411,7 @@ class SkyView(context:Context): View(context) {
     private var milkyFrom=0f
     private var milkyTo=0f
     private val milkyFadeDuration=12000L
-    private data class Dust(val x:Float,val y:Float,val radius:Float,val alpha:Int)
+    private data class Dust(val x:Float,val y:Float,val radius:Float,val alpha:Int,val color:Int)
     private var dust:List<Dust> = emptyList()
     private var milkySlope=0f
     private var milkyOffset=.5f
@@ -439,7 +439,11 @@ class SkyView(context:Context): View(context) {
                     if(rng.nextBoolean()) -rng.nextFloat()*skyPadX else 1f+rng.nextFloat()*skyPadX
                 val spread=(rng.nextFloat()+rng.nextFloat()+rng.nextFloat()-1.5f)*.21f
                 Dust(x,(milkyOffset+milkySlope*(x-.5f)+spread).coerceIn(-skyPadY,1f+skyPadY),
-                    .32f+rng.nextFloat()*.95f,7+rng.nextInt(19))
+                    .32f+rng.nextFloat()*.95f,7+rng.nextInt(19),when(rng.nextInt(100)) {
+                        in 0..84 -> Color.rgb(194,211,233)
+                        in 85..94 -> Color.rgb(224,215,201)
+                        else -> Color.rgb(178,202,237)
+                    })
             }
         }
         invalidate()
@@ -464,9 +468,9 @@ class SkyView(context:Context): View(context) {
         val twinkleElapsed=(now-milkyTransitionAt).coerceAtLeast(0L)
         val cohort=((twinkleElapsed/20000L)%20L).toInt()
         val cycleMs=(twinkleElapsed%20000L).toFloat()
-        paint.color=Color.rgb(194,211,233)
         for(i in dust.indices) {
             val d=dust[i]
+            paint.color=d.color
             var brightness=1f
             if(i%20==cohort) {
                 // Stagger starts over 8 seconds; a smooth 12-second dip follows.
@@ -532,7 +536,7 @@ class SkyView(context:Context): View(context) {
     private val transitionDuration=18000L
     // Rare, dim shooting stars: randomized path and 1–3 minute gaps.
     private data class Comet(val start:Long,val duration:Long,val x:Float,val y:Float,
-        val dx:Float,val dy:Float,val brightness:Float,val tail:Float)
+        val dx:Float,val dy:Float,val brightness:Float,val tail:Float,val color:Int,val tailColor:Int)
     private var comet:Comet?=null
     private var nextCometAt=SystemClock.elapsedRealtime()+rng.nextLong(60000L,180001L)
     fun requestComet() {
@@ -550,9 +554,15 @@ class SkyView(context:Context): View(context) {
             val angle=(if(rng.nextBoolean()) 1f else -1f)*(0.25f+rng.nextFloat()*0.65f)
             val dx=(0.12f+rng.nextFloat()*0.16f)*(if(rng.nextBoolean()) 1f else -1f)
             val dy=dx*angle
+            val tint=when(rng.nextInt(100)) {
+                in 0..64 -> Color.rgb(205,222,246) to Color.rgb(170,196,230)
+                in 65..84 -> Color.rgb(241,229,208) to Color.rgb(213,199,177)
+                in 85..94 -> Color.rgb(175,201,238) to Color.rgb(145,175,215)
+                else -> Color.rgb(183,223,200) to Color.rgb(153,195,173)
+            }
             comet=Comet(now,rng.nextLong(4500L,7001L),
                 0.12f+rng.nextFloat()*0.70f,0.15f+rng.nextFloat()*0.65f,
-                dx,dy,0.48f+rng.nextFloat()*0.22f,0.018f+rng.nextFloat()*0.022f)
+                dx,dy,0.48f+rng.nextFloat()*0.22f,0.018f+rng.nextFloat()*0.022f,tint.first,tint.second)
         }
         val c=comet ?: return
         val p=(now-c.start).toFloat()/c.duration
@@ -571,11 +581,11 @@ class SkyView(context:Context): View(context) {
         val alpha=(c.brightness*envelope*255f).toInt().coerceIn(0,255)
         cometPaint.strokeWidth=(1.35f*w/1920f).coerceAtLeast(1.0f)
         cometPaint.shader=LinearGradient(tx,ty,x,y,
-            intArrayOf(Color.TRANSPARENT,Color.argb(alpha/2,170,196,230),
-                Color.argb(alpha,205,222,246)),null,Shader.TileMode.CLAMP)
+            intArrayOf(Color.TRANSPARENT,Color.argb(alpha/2,Color.red(c.tailColor),Color.green(c.tailColor),Color.blue(c.tailColor)),
+                Color.argb(alpha,Color.red(c.color),Color.green(c.color),Color.blue(c.color))),null,Shader.TileMode.CLAMP)
         canvas.drawLine(tx,ty,x,y,cometPaint)
         cometPaint.shader=null
-        paint.color=Color.rgb(205,222,246)
+        paint.color=c.color
         paint.alpha=alpha
         canvas.drawCircle(x,y,(1.5f*w/1920f).coerceAtLeast(1.1f),paint)
     }
