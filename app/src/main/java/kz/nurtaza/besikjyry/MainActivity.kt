@@ -375,14 +375,35 @@ class SkyView(context:Context): View(context) {
     private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
     // Keep star density consistent from 1080p through native 4K.
     private var stars: List<Star> = emptyList()
+    private var skyPadX=0f
+    private var skyPadY=0f
+    // A session lasts one hour: the sky travels at most five degrees.
+    private fun skyAngle(now:Long):Float =
+        -5f*((now-appLaunchAt).coerceIn(0L,3600000L)/3600000f)
+    private fun rotateSky(canvas:Canvas,now:Long,w:Float,h:Float) {
+        canvas.rotate(skyAngle(now),w*.75f,h*.25f)
+    }
     override fun onSizeChanged(w:Int,h:Int,oldw:Int,oldh:Int) {
         super.onSizeChanged(w,h,oldw,oldh)
         val pixels = w.toLong() * h.toLong()
         val count = (1250.0 * pixels / (1920.0 * 1080.0)).toInt().coerceIn(600,5000)
-        stars = List(count) {
-        Star(rng.nextFloat(),rng.nextFloat(),0.45f+rng.nextFloat()*1.5f,
+        if(w<=0 || h<=0) return
+        // Overscan covers every corner throughout the five-degree rotation.
+        val pad=(2.0*hypot(w*.75,h*.75)*sin(Math.PI/72.0)+3.0).toFloat()
+        skyPadX=pad/w
+        skyPadY=pad/h
+        fun newStar(x:Float,y:Float)=Star(x,y,0.45f+rng.nextFloat()*1.5f,
             0.12f+rng.nextFloat()*0.65f,rng.nextFloat()*6.283f,
             40f+rng.nextFloat()*55f,rng.nextFloat()<0.15f)
+        val extra=(count*((1f+2f*skyPadX)*(1f+2f*skyPadY)-1f)).toInt()
+        stars=List(count) { newStar(rng.nextFloat(),rng.nextFloat()) } + List(extra) {
+            var x:Float
+            var y:Float
+            do {
+                x=-skyPadX+rng.nextFloat()*(1f+2f*skyPadX)
+                y=-skyPadY+rng.nextFloat()*(1f+2f*skyPadY)
+            } while(x in 0f..1f && y in 0f..1f)
+            newStar(x,y)
         }
     }
     private var milkyWayEnabled=false
@@ -411,10 +432,13 @@ class SkyView(context:Context): View(context) {
         if(milkyWayEnabled) {
             milkySlope=(rng.nextFloat()-.5f)*.8f
             milkyOffset=.38f+rng.nextFloat()*.24f
-            dust=List(4200) {
-                val x=rng.nextFloat()
+            // Keep the original visible density; add dust beyond both edges.
+            val extraDust=(4200*2f*skyPadX/20f).toInt()*20
+            dust=List(4200+extraDust) { i ->
+                val x=if(i<4200) rng.nextFloat() else
+                    if(rng.nextBoolean()) -rng.nextFloat()*skyPadX else 1f+rng.nextFloat()*skyPadX
                 val spread=(rng.nextFloat()+rng.nextFloat()+rng.nextFloat()-1.5f)*.21f
-                Dust(x,(milkyOffset+milkySlope*(x-.5f)+spread).coerceIn(0f,1f),
+                Dust(x,(milkyOffset+milkySlope*(x-.5f)+spread).coerceIn(-skyPadY,1f+skyPadY),
                     .32f+rng.nextFloat()*.95f,7+rng.nextInt(19))
             }
         }
@@ -432,7 +456,7 @@ class SkyView(context:Context): View(context) {
                 Color.argb((opacity*13).toInt(),65,82,110),
                 Color.argb((opacity*18).toInt(),65,85,118),Color.TRANSPARENT),
             null,Shader.TileMode.CLAMP)
-        canvas.drawRect(0f,0f,w,h,glow)
+        canvas.drawRect(-w*skyPadX,-h*skyPadY,w*(1f+skyPadX),h*(1f+skyPadY),glow)
         glow.shader=null
         canvas.restore()
         // Exactly one of 20 interleaved cohorts (5%) can twinkle at a time.
@@ -670,6 +694,8 @@ class SkyView(context:Context): View(context) {
         val scale=min(w*.58f,h*.75f)
         val originX=w*.5f-scale*.5f; val originY=h*.5f-scale*.5f
         fun xy(p:Pair<Float,Float>)=Pair(originX+p.first*scale,originY+p.second*scale)
+        val skySave=canvas.save()
+        rotateSky(canvas,SystemClock.elapsedRealtime(),w,h)
         linePaint.strokeWidth=(1.1f*w/1920f).coerceAtLeast(0.75f)
         linePaint.alpha=(lineOpacity*105).toInt().coerceIn(0,255)
         for((a,b) in c.edges) {
@@ -683,6 +709,7 @@ class SkyView(context:Context): View(context) {
             paint.alpha=(opacity*230).toInt().coerceIn(0,255)
             canvas.drawCircle(pos.first,pos.second,radius,paint)
         }
+        canvas.restoreToCount(skySave)
         if(labelOpacity>0f) {
             textPaint.textSize=28f*w/1920f
             textPaint.alpha=(labelOpacity*140).toInt().coerceIn(0,255)
@@ -704,6 +731,8 @@ class SkyView(context:Context): View(context) {
         glow.shader=RadialGradient(w*.54f,h*.48f,w*.62f,intArrayOf(Color.argb(25,35,57,100),Color.argb(8,21,43,80),Color.TRANSPARENT),null,Shader.TileMode.CLAMP)
         canvas.drawRect(0f,0f,w,h,glow)
         glow.shader=null
+        val skySave=canvas.save()
+        rotateSky(canvas,now,w,h)
         drawMilkyWay(canvas,now,w,h)
         // Every two minutes a different ~5% cohort of background stars
         // slowly vanishes completely and returns. The other 95% keep
@@ -740,6 +769,7 @@ class SkyView(context:Context): View(context) {
             paint.alpha=(a*255).toInt()
             canvas.drawCircle(x,y,s.size*w/1920f,paint)
         }
+        canvas.restoreToCount(skySave)
         drawComet(canvas,now,w,h)
         drawSatellite(canvas,now,w,h)
         drawMoon(canvas,now,w,h)
