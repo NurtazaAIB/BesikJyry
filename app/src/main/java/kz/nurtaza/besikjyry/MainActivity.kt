@@ -435,9 +435,23 @@ class SkyView(context:Context): View(context) {
         canvas.drawRect(0f,0f,w,h,glow)
         glow.shader=null
         canvas.restore()
-        for(d in dust) {
-            paint.color=Color.rgb(194,211,233)
-            paint.alpha=(d.alpha*opacity).toInt().coerceIn(0,255)
+        // Exactly one of 20 interleaved cohorts (5%) can twinkle at a time.
+        // Each star returns to its original brightness before the cohort changes.
+        val twinkleElapsed=(now-milkyTransitionAt).coerceAtLeast(0L)
+        val cohort=((twinkleElapsed/20000L)%20L).toInt()
+        val cycleMs=(twinkleElapsed%20000L).toFloat()
+        paint.color=Color.rgb(194,211,233)
+        for(i in dust.indices) {
+            val d=dust[i]
+            var brightness=1f
+            if(i%20==cohort) {
+                // Stagger starts over 8 seconds; a smooth 12-second dip follows.
+                val delay=((i/20*137)%8000).toFloat()
+                val p=((cycleMs-delay)/12000f).coerceIn(0f,1f)
+                val dip=sin(Math.PI*p.toDouble()).toFloat()
+                brightness=1f-.92f*dip*dip
+            }
+            paint.alpha=(d.alpha*opacity*brightness).toInt().coerceIn(0,255)
             canvas.drawCircle(d.x*w,d.y*h,(d.radius*w/1920f).coerceAtLeast(.45f),paint)
         }
     }
