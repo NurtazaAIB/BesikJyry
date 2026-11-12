@@ -583,10 +583,35 @@ class SkyView(context:Context): View(context) {
     private var moonShownAt=-30000L
     private var moonLatitude:Double?=null
     private var moonBitmap:Bitmap?=null
+    private var moonRequested=false
+    private var moonPreparationStarted=false
     private val moonDisplayPaint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        if(moonPreparationStarted) return
+        moonPreparationStarted=true
+        // Prepare the lunar image once per SkyView, off the UI/render thread.
+        Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            val bitmap=createMoonBitmap()
+            bitmap.prepareToDraw()
+            Handler(Looper.getMainLooper()).post {
+                moonBitmap=bitmap
+                if(moonRequested) {
+                    moonRequested=false
+                    moonShownAt=SystemClock.elapsedRealtime()
+                    invalidate()
+                }
+            }
+        },"TunMoonPreparation").start()
+    }
     fun showMoon(latitude:Double?,longitude:Double?) {
         moonLatitude=latitude
-        moonBitmap=createMoonBitmap()
+        if(moonBitmap==null) {
+            // An early OK press waits for the existing startup preparation.
+            moonRequested=true
+            return
+        }
         moonShownAt=SystemClock.elapsedRealtime()
         invalidate()
     }
