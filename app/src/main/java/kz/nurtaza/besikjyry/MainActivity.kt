@@ -817,7 +817,12 @@ class SkyView(context:Context): View(context) {
             paint.alpha=(opacity*255f).toInt()
             canvas.drawRect(0f,0f,w,h,paint)
         }
-        // Refresh at display cadence; actual frame rate depends on projector hardware.
-        postInvalidateDelayed(100L)
+        // Smooth moving objects at display cadence (normally 60 Hz).
+        // Preserve the low-power 10 FPS sky when no comet or satellite is active.
+        if(comet!=null || satellites.isNotEmpty()) {
+            postInvalidateOnAnimation()
+        } else {
+            postInvalidateDelayed(100L)
+        }
     }
 }
